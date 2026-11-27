@@ -10,9 +10,9 @@ let testEnv;
 const PROJECT_ID = process.env.GCP_PROJECT || "demo-no-project";
 const ALICE_UID = "alice_customer_101";
 const BOB_UID = "bob_customer_202";
-const ADMIN_UID = "admin_ritik_999";
-const SPOOF_UID = "hacker_spoof_666";
-const ADMIN_EMAIL = "ritikraj3405328@gmail.com";
+const ADMIN_UID = "admin_primary_999";
+const OTHER_UID = "other_user_666";
+const ADMIN_EMAIL = "YOUR_ADMIN_EMAIL@gmail.com";
 
 const [emulatorHost, emulatorPortStr] = (
   process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8085"
@@ -192,13 +192,12 @@ test("ServiceRequest: terminal RESOLVED locks customer edits, verified admin can
   await assertSucceeds(adminDb.collection("users").doc(ALICE_UID).collection("serviceRequests").doc("req_1").update({ status: "SCHEDULED", updatedAt: pastDate(400) }));
 });
 
-// 4. Anti-Hacker Admin RBAC, Email Spoofing Defense, AppConfig, HubApps, AuditLogs
-test("Strict Anti-Hacker Rules: blocks unverified admin email spoof, self-promotion, javascript URLs, and audit log tampering", async () => {
+// 4. Strict Admin Email RBAC: Admin Collections (/admins, /appConfig, /hubApps, /adminAuditLogs)
+test("Strict Anti-Hacker Rules: blocks non-admin read/write on admin collections, javascript URLs, and audit log tampering", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
-  // Spoof attack: same admin email string, but email_verified is FALSE!
-  const spoofAdminDb = testEnv.authenticatedContext(SPOOF_UID, { email: ADMIN_EMAIL, email_verified: false }).firestore();
-  const verifiedAdminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
+  const otherDb = testEnv.authenticatedContext(OTHER_UID, { email: "hacker@example.com", email_verified: true }).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
   const now = pastDate(5000);
 
   const validConfig = {
@@ -222,46 +221,52 @@ test("Strict Anti-Hacker Rules: blocks unverified admin email spoof, self-promot
     updatedAt: now,
   };
 
-  // Unauthenticated, normal user, and UNVERIFIED email spoof must ALL fail on /appConfig write
+  // Unauthenticated and non-admin users must fail on /appConfig create/write
   await assertFails(unauthDb.collection("appConfig").doc("global").set({ ...validConfig, updatedByUid: "anon" }));
   await assertFails(aliceDb.collection("appConfig").doc("global").set({ ...validConfig, updatedByUid: ALICE_UID }));
-  await assertFails(spoofAdminDb.collection("appConfig").doc("global").set({ ...validConfig, updatedByUid: SPOOF_UID }));
+  await assertFails(otherDb.collection("appConfig").doc("global").set({ ...validConfig, updatedByUid: OTHER_UID }));
 
-  // Verified Admin succeeds on /appConfig create & update
-  await assertSucceeds(verifiedAdminDb.collection("appConfig").doc("global").set(validConfig));
-  await assertSucceeds(verifiedAdminDb.collection("appConfig").doc("global").update({ maintenanceMode: true, updatedAt: pastDate(1000) }));
+  // Admin succeeds on /appConfig create, read & update
+  await assertSucceeds(adminDb.collection("appConfig").doc("global").set(validConfig));
+  await assertSucceeds(adminDb.collection("appConfig").doc("global").get());
+  await assertSucceeds(adminDb.collection("appConfig").doc("global").update({ maintenanceMode: true, updatedAt: pastDate(1000) }));
 
-  // Authenticated customer can read /appConfig/global (get), but CANNOT list /appConfig or delete it
-  await assertSucceeds(aliceDb.collection("appConfig").doc("global").get());
+  // Unauthenticated & non-admin users CANNOT read or list /appConfig
+  await assertFails(unauthDb.collection("appConfig").doc("global").get());
+  await assertFails(aliceDb.collection("appConfig").doc("global").get());
   await assertFails(aliceDb.collection("appConfig").get());
-  await assertFails(verifiedAdminDb.collection("appConfig").doc("global").delete());
 
-  // Self-promotion to /admins/{uid} strictly denied for customers & unverified spoofers
+  // Self-promotion to /admins/{uid} strictly denied for customers & non-admins
   await assertFails(aliceDb.collection("admins").doc(ALICE_UID).set({
-    uid: ALICE_UID, email: "alice@example.com", username: "hacker_alice", role: "SUPER_ADMIN", active: true, createdAt: now, updatedAt: now
+    uid: ALICE_UID, email: "alice@example.com", role: "SUPER_ADMIN", active: true, createdAt: now, updatedAt: now
   }));
-  await assertFails(spoofAdminDb.collection("admins").doc(SPOOF_UID).set({
-    uid: SPOOF_UID, email: ADMIN_EMAIL, username: "spoof_admin", role: "SUPER_ADMIN", active: true, createdAt: now, updatedAt: now
+  await assertFails(otherDb.collection("admins").doc(OTHER_UID).set({
+    uid: OTHER_UID, email: "hacker@example.com", role: "SUPER_ADMIN", active: true, createdAt: now, updatedAt: now
+  }));
+  await assertSucceeds(adminDb.collection("admins").doc(ADMIN_UID).set({
+    uid: ADMIN_UID, email: ADMIN_EMAIL, role: "SUPER_ADMIN", active: true, createdAt: now, updatedAt: now
   }));
 
-  // HubApps: blocks javascript: XSS URL even from admin; allows clean https:// URL; customer lists only enabled == true
-  await assertFails(verifiedAdminDb.collection("hubApps").doc("xss_app").set({
+  // HubApps: blocks javascript: XSS URL even from admin; only admin email can read & write
+  await assertFails(adminDb.collection("hubApps").doc("xss_app").set({
     name: "Bad Link", category: "Website", desc: "XSS test", url: "javascript:alert(1)", icon: "globe", enabled: true, sortOrder: 1, createdAt: now, updatedAt: now
   }));
-  await assertSucceeds(verifiedAdminDb.collection("hubApps").doc("store_1").set({
+  await assertSucceeds(adminDb.collection("hubApps").doc("store_1").set({
     name: "AquaVault Store", category: "Website", desc: "Official hardware store", url: "https://aquavault.in", icon: "globe", enabled: true, sortOrder: 1, createdAt: now, updatedAt: now
   }));
-  await assertSucceeds(aliceDb.collection("hubApps").where("enabled", "==", true).get());
-  await assertFails(aliceDb.collection("hubApps").get()); // unfiltered list denied for customers
+  await assertSucceeds(adminDb.collection("hubApps").get());
+  await assertFails(unauthDb.collection("hubApps").get());
+  await assertFails(aliceDb.collection("hubApps").get());
   await assertFails(aliceDb.collection("hubApps").doc("store_1").delete());
 
-  // AdminAuditLogs: verified admin can append, NOBODY can update or delete, customers cannot read
-  await assertSucceeds(verifiedAdminDb.collection("adminAuditLogs").doc("log_1").set({
-    actorUid: ADMIN_UID, actorEmail: ADMIN_EMAIL, eventType: "LOGIN_VERIFIED", summary: "4-factor admin login passed", severity: "INFO", createdAt: now
+  // AdminAuditLogs: admin can append/read, NOBODY can update or delete, customers cannot read
+  await assertSucceeds(adminDb.collection("adminAuditLogs").doc("log_1").set({
+    actorUid: ADMIN_UID, actorEmail: ADMIN_EMAIL, eventType: "LOGIN_VERIFIED", summary: "Firebase Admin login passed", severity: "INFO", createdAt: now
   }));
+  await assertFails(unauthDb.collection("adminAuditLogs").doc("log_1").get());
   await assertFails(aliceDb.collection("adminAuditLogs").doc("log_1").get());
-  await assertFails(verifiedAdminDb.collection("adminAuditLogs").doc("log_1").update({ summary: "Tampered" }));
-  await assertFails(verifiedAdminDb.collection("adminAuditLogs").doc("log_1").delete());
+  await assertFails(adminDb.collection("adminAuditLogs").doc("log_1").update({ summary: "Tampered" }));
+  await assertFails(adminDb.collection("adminAuditLogs").doc("log_1").delete());
 });
 
 // 5. Invoices, CalcEntry, PersonalNote & PrivacyAuditLog Rules

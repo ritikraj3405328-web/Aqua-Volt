@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Global Safety Net (Zero-Trust Default Deny)
+    // 1. Global Safety Net — Deny all unauthenticated or unmatched read/write access
     match /{document=**} {
       allow read, write: if false;
     }
@@ -13,6 +13,12 @@ service cloud.firestore {
 
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Strict Server-Side Admin Gate — Replace with your exact Firebase Admin email before deploying
+    function isAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email == 'YOUR_ADMIN_EMAIL@gmail.com';
     }
 
     function isValidId(id) {
@@ -31,29 +37,11 @@ service cloud.firestore {
       return ts is timestamp && ts <= request.time;
     }
 
-    // Hardened Admin Identity (Anti-Spoofing: REQUIRES email_verified == true)
-    function isBootstrapAdmin() {
-      return isSignedIn() &&
-        request.auth.token.email_verified == true &&
-        request.auth.token.email == 'ritikraj3405328@gmail.com';
-    }
-
-    function isAdmin() {
-      return isBootstrapAdmin() || (
-        isSignedIn() &&
-        request.auth.token.email_verified == true &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true
-      );
-    }
-
-    // 3. Entity Validation Blueprints (Anti-Update-Gap & Denial-of-Wallet Guards)
+    // 3. Entity Validation Blueprints
     function isValidAdminRecord(data, adminId) {
       return data.uid is string && data.uid == adminId &&
         data.email is string && data.email.size() >= 5 && data.email.size() <= 200 &&
         data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$') &&
-        data.username is string && data.username.size() >= 3 && data.username.size() <= 40 &&
-        data.username.matches('^[a-zA-Z0-9_.\\-]+$') &&
         data.role is string && data.role in ['SUPER_ADMIN', 'OPS_ADMIN'] &&
         data.active is bool &&
         isValidTimestamp(data.createdAt) &&
@@ -198,34 +186,30 @@ service cloud.firestore {
         isValidTimestamp(data.updatedAt);
     }
 
-    // 4. Admin-Only Collections (Strict Zero-Trust Governance)
+    // 4. Admin-Only Collections (Strict Admin Email Gate Only)
     match /admins/{adminId} {
-      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
-      allow list: if isAdmin();
+      allow get, list: if isAdmin();
 
-      allow create: if isSignedIn() &&
+      allow create: if isAdmin() &&
         isValidId(adminId) &&
-        incoming().keys().hasAll(['uid', 'email', 'username', 'role', 'active', 'createdAt', 'updatedAt']) &&
-        incoming().keys().hasOnly(['uid', 'email', 'username', 'role', 'active', 'createdAt', 'updatedAt']) &&
-        isValidAdminRecord(incoming(), adminId) &&
-        isAdmin();
+        incoming().keys().hasAll(['uid', 'email', 'role', 'active', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['uid', 'email', 'role', 'active', 'createdAt', 'updatedAt']) &&
+        isValidAdminRecord(incoming(), adminId);
 
-      allow update: if isSignedIn() &&
+      allow update: if isAdmin() &&
         isValidId(adminId) &&
         isValidAdminRecord(incoming(), adminId) &&
         incoming().uid == existing().uid &&
         incoming().createdAt == existing().createdAt &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['email', 'username', 'role', 'active', 'updatedAt']) &&
-        isAdmin();
+        incoming().diff(existing()).affectedKeys().hasOnly(['email', 'role', 'active', 'updatedAt']);
 
-      allow delete: if isValidId(adminId) && isAdmin() && request.auth.uid != adminId;
+      allow delete: if isAdmin() && isValidId(adminId) && request.auth.uid != adminId;
     }
 
     match /appConfig/{configId} {
-      allow get: if isSignedIn() && isValidId(configId);
-      allow list: if isAdmin();
+      allow get, list: if isAdmin();
 
-      allow create: if isSignedIn() &&
+      allow create: if isAdmin() &&
         isValidId(configId) &&
         incoming().keys().hasAll([
           'featureWarranty', 'featureDevices', 'featureCalculator', 'featureInvoice',
@@ -241,10 +225,9 @@ service cloud.firestore {
           'defaultGstPercent', 'defaultInvoicePalette', 'defaultTheme',
           'updatedByUid', 'createdAt', 'updatedAt'
         ]) &&
-        isValidAppConfig(incoming()) &&
-        isAdmin();
+        isValidAppConfig(incoming());
 
-      allow update: if isSignedIn() &&
+      allow update: if isAdmin() &&
         isValidId(configId) &&
         isValidAppConfig(incoming()) &&
         incoming().createdAt == existing().createdAt &&
@@ -254,49 +237,43 @@ service cloud.firestore {
           'maintenanceMode', 'maintenanceMessage', 'announcementActive', 'announcementText',
           'defaultGstPercent', 'defaultInvoicePalette', 'defaultTheme',
           'updatedByUid', 'updatedAt'
-        ]) &&
-        isAdmin();
+        ]);
 
-      allow delete: if false;
+      allow delete: if isAdmin() && isValidId(configId);
     }
 
     match /hubApps/{appId} {
-      allow get: if isSignedIn() && isValidId(appId) && (existing().enabled == true || isAdmin());
-      allow list: if (isSignedIn() && resource.data.enabled == true) || isAdmin();
+      allow get, list: if isAdmin();
 
-      allow create: if isSignedIn() &&
+      allow create: if isAdmin() &&
         isValidId(appId) &&
         incoming().keys().hasAll(['name', 'category', 'desc', 'url', 'icon', 'enabled', 'sortOrder', 'createdAt', 'updatedAt']) &&
         incoming().keys().hasOnly(['name', 'category', 'desc', 'url', 'icon', 'enabled', 'sortOrder', 'createdAt', 'updatedAt']) &&
-        isValidHubApp(incoming()) &&
-        isAdmin();
+        isValidHubApp(incoming());
 
-      allow update: if isSignedIn() &&
+      allow update: if isAdmin() &&
         isValidId(appId) &&
         isValidHubApp(incoming()) &&
         incoming().createdAt == existing().createdAt &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'desc', 'url', 'icon', 'enabled', 'sortOrder', 'updatedAt']) &&
-        isAdmin();
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'desc', 'url', 'icon', 'enabled', 'sortOrder', 'updatedAt']);
 
-      allow delete: if isValidId(appId) && isAdmin();
+      allow delete: if isAdmin() && isValidId(appId);
     }
 
     match /adminAuditLogs/{logId} {
-      allow get: if isValidId(logId) && isAdmin();
-      allow list: if isAdmin();
+      allow get, list: if isAdmin();
 
-      allow create: if isSignedIn() &&
+      allow create: if isAdmin() &&
         isValidId(logId) &&
         incoming().keys().hasAll(['actorUid', 'actorEmail', 'eventType', 'summary', 'severity', 'createdAt']) &&
         incoming().keys().hasOnly(['actorUid', 'actorEmail', 'eventType', 'summary', 'severity', 'createdAt']) &&
-        isValidAdminAuditLog(incoming()) &&
-        isAdmin();
+        isValidAdminAuditLog(incoming());
 
-      // Tamper-Proof Append-Only Security Audit Logs
+      // Append-Only Audit Trail
       allow update, delete: if false;
     }
 
-    // 5. Customer Root Document & Subcollections (Owner Isolation + Verified Admin Governance)
+    // 5. Customer Root Document & Subcollections (Owner UID Isolation + Admin Governance)
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
@@ -377,7 +354,7 @@ service cloud.firestore {
         allow delete: if isValidId(warrantyId) && (isOwner(userId) || isAdmin());
       }
 
-      // Service & Support Requests (Terminal State Locking with Verified Admin Override)
+      // Service & Support Requests
       match /serviceRequests/{requestId} {
         allow get: if isValidId(requestId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();
@@ -414,7 +391,7 @@ service cloud.firestore {
         allow delete: if isValidId(requestId) && (isOwner(userId) || isAdmin());
       }
 
-      // Colorful Customer Invoices
+      // Customer Bills / Invoices
       match /invoices/{invoiceId} {
         allow get: if isValidId(invoiceId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();
@@ -510,7 +487,7 @@ service cloud.firestore {
         allow delete: if isValidId(noteId) && (isOwner(userId) || isAdmin());
       }
 
-      // DPDP Privacy Audit Logs (Append-Only, User-Owned, Admin-Readable)
+      // DPDP Privacy Audit Logs (Append-Only)
       match /privacyRequests/{reqId} {
         allow get: if isValidId(reqId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();
@@ -524,7 +501,7 @@ service cloud.firestore {
             'userId', 'actionType', 'details', 'createdAt', 'updatedAt'
           ]) &&
           isValidPrivacyAuditLog(incoming(), userId) &&
-          isOwner(userId);
+          (isOwner(userId) || isAdmin());
 
         allow update: if false;
         allow delete: if isValidId(reqId) && (isOwner(userId) || isAdmin());

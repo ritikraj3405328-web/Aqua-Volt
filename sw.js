@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aquavault-pwa-v7';
+const CACHE_NAME = 'aquavault-pwa-v8';
 const PRECACHE_ASSETS = [
   './',
   './index.html',
@@ -9,9 +9,9 @@ const PRECACHE_ASSETS = [
   './notes.html',
   './hub.html',
   './privacy.html',
-  './styles.css?v=5',
-  './app.js?v=5',
-  './invoice-engine.js?v=5',
+  './styles.css?v=6',
+  './app.js?v=6',
+  './invoice-engine.js?v=6',
   './manifest.webmanifest',
   './assets/app-icon.jpg',
   './assets/icon-192.png',

@@ -757,6 +757,7 @@ function renderHome() {
         </div>
 
         <div class="hero-bottom">
+          <div class="hero-eyebrow">Your Private Water Hardware Vault</div>
           <h1 class="hero-title">Precision Water<br/>Protection</h1>
           <p class="hero-desc">
             Day-by-day decreasing warranty telemetry, verified GST digital bills, one-click engineer dispatch, and synced workspace tools.
