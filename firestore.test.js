@@ -73,7 +73,10 @@ test("CustomerProfile: owner create/read/update succeeds; unauth, cross-user, gh
   await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).set(validProfile));
   await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).get());
   await assertFails(bobDb.collection("users").doc(ALICE_UID).get());
-  await assertFails(aliceDb.collection("users").get()); // list on /users denied for non-admins
+  await assertFails(aliceDb.collection("users").get()); // list on /users denied
+  await assertFails(unauthDb.collection("users").get()); // list on /users denied for unauth
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
+  await assertFails(adminDb.collection("users").get()); // root /users listing blocked globally (allow list: if false)
 
   await assertSucceeds(
     aliceDb.collection("users").doc(ALICE_UID).update({

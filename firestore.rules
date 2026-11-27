@@ -37,6 +37,12 @@ service cloud.firestore {
       return ts is timestamp && ts <= request.time;
     }
 
+    function hasValidKeyCount() {
+      return request.resource != null &&
+        request.resource.data.keys().size() >= 1 &&
+        request.resource.data.keys().size() <= 30;
+    }
+
     // 3. Entity Validation Blueprints
     function isValidAdminRecord(data, adminId) {
       return data.uid is string && data.uid == adminId &&
@@ -192,12 +198,14 @@ service cloud.firestore {
 
       allow create: if isAdmin() &&
         isValidId(adminId) &&
+        hasValidKeyCount() &&
         incoming().keys().hasAll(['uid', 'email', 'role', 'active', 'createdAt', 'updatedAt']) &&
         incoming().keys().hasOnly(['uid', 'email', 'role', 'active', 'createdAt', 'updatedAt']) &&
         isValidAdminRecord(incoming(), adminId);
 
       allow update: if isAdmin() &&
         isValidId(adminId) &&
+        hasValidKeyCount() &&
         isValidAdminRecord(incoming(), adminId) &&
         incoming().uid == existing().uid &&
         incoming().createdAt == existing().createdAt &&
@@ -211,6 +219,7 @@ service cloud.firestore {
 
       allow create: if isAdmin() &&
         isValidId(configId) &&
+        hasValidKeyCount() &&
         incoming().keys().hasAll([
           'featureWarranty', 'featureDevices', 'featureCalculator', 'featureInvoice',
           'featureNotes', 'featureHub', 'featurePrivacy', 'featurePwaPopup',
@@ -229,6 +238,7 @@ service cloud.firestore {
 
       allow update: if isAdmin() &&
         isValidId(configId) &&
+        hasValidKeyCount() &&
         isValidAppConfig(incoming()) &&
         incoming().createdAt == existing().createdAt &&
         incoming().diff(existing()).affectedKeys().hasOnly([
@@ -247,12 +257,14 @@ service cloud.firestore {
 
       allow create: if isAdmin() &&
         isValidId(appId) &&
+        hasValidKeyCount() &&
         incoming().keys().hasAll(['name', 'category', 'desc', 'url', 'icon', 'enabled', 'sortOrder', 'createdAt', 'updatedAt']) &&
         incoming().keys().hasOnly(['name', 'category', 'desc', 'url', 'icon', 'enabled', 'sortOrder', 'createdAt', 'updatedAt']) &&
         isValidHubApp(incoming());
 
       allow update: if isAdmin() &&
         isValidId(appId) &&
+        hasValidKeyCount() &&
         isValidHubApp(incoming()) &&
         incoming().createdAt == existing().createdAt &&
         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'desc', 'url', 'icon', 'enabled', 'sortOrder', 'updatedAt']);
@@ -265,6 +277,7 @@ service cloud.firestore {
 
       allow create: if isAdmin() &&
         isValidId(logId) &&
+        hasValidKeyCount() &&
         incoming().keys().hasAll(['actorUid', 'actorEmail', 'eventType', 'summary', 'severity', 'createdAt']) &&
         incoming().keys().hasOnly(['actorUid', 'actorEmail', 'eventType', 'summary', 'severity', 'createdAt']) &&
         isValidAdminAuditLog(incoming());
@@ -273,13 +286,15 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // 5. Customer Root Document & Subcollections (Owner UID Isolation + Admin Governance)
+    // 5. Customer Root Document & Subcollections (Strict Owner UID Isolation + Zero User Listing)
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
-      allow list: if isAdmin();
+      // Block listing all users on root /users collection
+      allow list: if false;
 
       allow create: if isSignedIn() &&
         isValidId(userId) &&
+        hasValidKeyCount() &&
         incoming().keys().hasAll([
           'userId', 'displayName', 'email', 'customerCode',
           'darkModeEnabled', 'dpdpConsentAccepted', 'dpdpConsentVersion',
@@ -295,6 +310,7 @@ service cloud.firestore {
 
       allow update: if isSignedIn() &&
         isValidId(userId) &&
+        hasValidKeyCount() &&
         isValidCustomerProfile(incoming(), userId) &&
         incoming().userId == existing().userId &&
         incoming().createdAt == existing().createdAt &&
@@ -320,6 +336,7 @@ service cloud.firestore {
 
         allow create: if isSignedIn() &&
           isValidId(warrantyId) &&
+          hasValidKeyCount() &&
           incoming().keys().hasAll([
             'userId', 'deviceType', 'productName', 'modelCode', 'serialNumber',
             'locationTag', 'installEpochDay', 'warrantyTotalDays', 'unitStatus',
@@ -337,6 +354,7 @@ service cloud.firestore {
 
         allow update: if isSignedIn() &&
           isValidId(warrantyId) &&
+          hasValidKeyCount() &&
           isValidWarrantyUnit(incoming(), userId) &&
           incoming().userId == existing().userId &&
           incoming().createdAt == existing().createdAt &&
@@ -361,6 +379,7 @@ service cloud.firestore {
 
         allow create: if isSignedIn() &&
           isValidId(requestId) &&
+          hasValidKeyCount() &&
           incoming().keys().hasAll([
             'userId', 'ticketNumber', 'warrantyId', 'deviceLabel',
             'issueCategory', 'issueNote', 'preferredSlot', 'status',
@@ -376,6 +395,7 @@ service cloud.firestore {
 
         allow update: if isSignedIn() &&
           isValidId(requestId) &&
+          hasValidKeyCount() &&
           isValidServiceRequest(incoming(), userId) &&
           incoming().userId == existing().userId &&
           incoming().createdAt == existing().createdAt &&
@@ -398,6 +418,7 @@ service cloud.firestore {
 
         allow create: if isSignedIn() &&
           isValidId(invoiceId) &&
+          hasValidKeyCount() &&
           incoming().keys().hasAll([
             'userId', 'invoiceNo', 'clientName', 'grandTotal',
             'status', 'palette', 'invoiceDate', 'dueDate', 'createdAt', 'updatedAt'
@@ -411,6 +432,7 @@ service cloud.firestore {
 
         allow update: if isSignedIn() &&
           isValidId(invoiceId) &&
+          hasValidKeyCount() &&
           isValidInvoiceRecord(incoming(), userId) &&
           incoming().userId == existing().userId &&
           incoming().createdAt == existing().createdAt &&
@@ -429,6 +451,7 @@ service cloud.firestore {
 
         allow create: if isSignedIn() &&
           isValidId(entryId) &&
+          hasValidKeyCount() &&
           incoming().keys().hasAll([
             'userId', 'label', 'expression', 'resultValue',
             'resultFormatted', 'mode', 'createdAt', 'updatedAt'
@@ -442,6 +465,7 @@ service cloud.firestore {
 
         allow update: if isSignedIn() &&
           isValidId(entryId) &&
+          hasValidKeyCount() &&
           isValidCalcEntry(incoming(), userId) &&
           incoming().userId == existing().userId &&
           incoming().createdAt == existing().createdAt &&
@@ -460,6 +484,7 @@ service cloud.firestore {
 
         allow create: if isSignedIn() &&
           isValidId(noteId) &&
+          hasValidKeyCount() &&
           incoming().keys().hasAll([
             'userId', 'title', 'content', 'tag', 'pinned',
             'gmailSyncState', 'driveSyncState', 'lastSyncedLabel',
@@ -475,6 +500,7 @@ service cloud.firestore {
 
         allow update: if isSignedIn() &&
           isValidId(noteId) &&
+          hasValidKeyCount() &&
           isValidPersonalNote(incoming(), userId) &&
           incoming().userId == existing().userId &&
           incoming().createdAt == existing().createdAt &&
@@ -494,6 +520,7 @@ service cloud.firestore {
 
         allow create: if isSignedIn() &&
           isValidId(reqId) &&
+          hasValidKeyCount() &&
           incoming().keys().hasAll([
             'userId', 'actionType', 'details', 'createdAt', 'updatedAt'
           ]) &&

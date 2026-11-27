@@ -1,5 +1,5 @@
 // =========================================================================
-// AQUAVAULT — CENTRAL FIREBASE CONFIGURATION
+// AQUAVAULT — CENTRAL FIREBASE CONFIGURATION (CRASH-PROOF MODULE)
 // Paste your Firebase Web App config once from:
 // Firebase Console -> Project Settings -> Your Apps -> Web App (</>)
 // =========================================================================
@@ -14,3 +14,10 @@ const firebaseConfig = {
 };
 // Optional: Set your named Firestore database ID if you are not using "(default)".
 export const firestoreDatabaseId = "(default)";
+
+try {
+  if (typeof globalThis !== "undefined") {
+    globalThis.__AQUAVAULT_FIREBASE_CONFIG__ = firebaseConfig;
+    globalThis.__AQUAVAULT_FIRESTORE_DB_ID__ = firestoreDatabaseId;
+  }
+} catch (_) {}

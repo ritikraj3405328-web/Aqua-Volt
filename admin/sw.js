@@ -1,9 +1,9 @@
-const ADMIN_CACHE = 'aquavault-admin-v4';
+const ADMIN_CACHE = 'aquavault-admin-v7';
 const ADMIN_ASSETS = [
   './',
   './index.html',
-  './admin.css?v=4',
-  './admin.js?v=4',
+  './admin.css?v=7',
+  './admin.js?v=7',
   '../firebase-config.js',
   './manifest.webmanifest',
   '../assets/icon-192.png',
@@ -15,6 +15,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(ADMIN_CACHE)
       .then((cache) => cache.addAll(ADMIN_ASSETS))
+      .catch(() => {})
       .then(() => self.skipWaiting())
   );
 });
@@ -22,7 +23,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k.startsWith('aquavault-admin-') && k !== ADMIN_CACHE).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k !== ADMIN_CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });

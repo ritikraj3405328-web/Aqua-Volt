@@ -164,15 +164,42 @@ function getPalette(id) {
 /* =========================================================================
    INVOICE STUDIO UI RENDERER
    ========================================================================= */
+function sanitizeInvoiceText(val, maxLen = 200) {
+  return String(val ?? '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/<\s*\/?\s*script\b[^>]*>/gi, '')
+    .replace(/javascript\s*:/gi, '')
+    .replace(/on[a-z]+\s*=/gi, '')
+    .slice(0, maxLen);
+}
+
+function validateInvoiceRecord(inv) {
+  if (!inv || typeof inv !== 'object') return { ok: false, error: 'Invalid invoice payload' };
+  const keys = Object.keys(inv);
+  if (keys.length === 0 || keys.length > 30) {
+    return { ok: false, error: 'Invoice payload exceeds maximum 30 allowed fields' };
+  }
+  const items = Array.isArray(inv.items) ? inv.items : [];
+  if (items.length === 0 || items.length > 25) {
+    return { ok: false, error: 'Invoice must contain between 1 and 25 line items' };
+  }
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(inv)).length;
+  if (jsonBytes > 28000) {
+    return { ok: false, error: 'Invoice payload size exceeds security limit' };
+  }
+  return { ok: true };
+}
+
 function setInvoiceSubTab(tab) {
   ensureInvoiceState();
-  state.invoiceTab = tab;
+  state.invoiceTab = tab === 'ledger' ? 'ledger' : 'studio';
   saveState();
   render();
 }
 
 function setInvoicePalette(paletteId) {
   ensureInvoiceState();
+  if (!INVOICE_PALETTES[paletteId]) return;
   state.invoiceDraft.palette = paletteId;
   saveState();
   render();
@@ -180,7 +207,7 @@ function setInvoicePalette(paletteId) {
 
 function setInvoiceFrameStyle(style) {
   ensureInvoiceState();
-  state.invoiceDraft.frameStyle = style;
+  state.invoiceDraft.frameStyle = style === 'classic' ? 'classic' : 'colorful';
   saveState();
   render();
 }
@@ -188,9 +215,29 @@ function setInvoiceFrameStyle(style) {
 function updateInvoiceField(field, value) {
   ensureInvoiceState();
   if (field === 'discountPct' || field === 'taxPct') {
-    state.invoiceDraft[field] = value === '' ? 0 : Number(value);
+    const n = value === '' ? 0 : Number(value);
+    state.invoiceDraft[field] = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
   } else {
-    state.invoiceDraft[field] = value;
+    const limits = {
+      invoiceNo: 40,
+      invoiceDate: 20,
+      dueDate: 20,
+      status: 24,
+      businessName: 120,
+      businessAddress: 240,
+      businessPhone: 40,
+      businessEmail: 120,
+      businessWebsite: 120,
+      clientName: 120,
+      clientAddress: 240,
+      clientPhone: 40,
+      clientEmail: 120,
+      paymentMethod: 80,
+      paymentDetails: 240,
+      terms: 500,
+      approvedBy: 80
+    };
+    state.invoiceDraft[field] = sanitizeInvoiceText(value, limits[field] || 200);
   }
   saveState();
   refreshInvoicePreviewOnly();
@@ -200,10 +247,16 @@ function updateInvoiceItem(index, field, value) {
   ensureInvoiceState();
   const item = state.invoiceDraft.items[index];
   if (!item) return;
-  if (field === 'qty' || field === 'price') {
-    item[field] = value === '' ? 0 : Math.max(0, Number(value));
+  if (field === 'qty') {
+    const q = value === '' ? 0 : Number(value);
+    item.qty = Number.isFinite(q) ? Math.max(0, Math.min(100000, q)) : 0;
+  } else if (field === 'price') {
+    const p = value === '' ? 0 : Number(value);
+    item.price = Number.isFinite(p) ? Math.max(0, Math.min(10000000, p)) : 0;
+  } else if (field === 'unit') {
+    item.unit = sanitizeInvoiceText(value, 24);
   } else {
-    item[field] = value;
+    item.desc = sanitizeInvoiceText(value, 180);
   }
   saveState();
   const rowTotalEl = document.getElementById(`invRowTotal_${index}`);
@@ -215,6 +268,10 @@ function updateInvoiceItem(index, field, value) {
 
 function addInvoiceItem() {
   ensureInvoiceState();
+  if (state.invoiceDraft.items.length >= 25) {
+    showToast('Maximum 25 line items allowed per invoice');
+    return;
+  }
   state.invoiceDraft.items.push({
     id: 'i' + Date.now(),
     desc: '',
@@ -262,6 +319,9 @@ function deleteSavedInvoice(id) {
   ensureInvoiceState();
   state.invoices = state.invoices.filter(x => x.id !== id);
   saveState();
+  if (typeof window.deleteCloudRecord === 'function') {
+    window.deleteCloudRecord('invoices', id);
+  }
   render();
   showToast('Invoice removed from ledger');
 }
@@ -269,6 +329,11 @@ function deleteSavedInvoice(id) {
 function saveCurrentInvoiceToLedger(silent = false) {
   ensureInvoiceState();
   const inv = JSON.parse(JSON.stringify(state.invoiceDraft));
+  const check = validateInvoiceRecord(inv);
+  if (!check.ok) {
+    if (!silent) showToast(check.error);
+    return null;
+  }
   const existingIdx = state.invoices.findIndex(x => x.invoiceNo === inv.invoiceNo);
   const record = {
     id: existingIdx >= 0 ? state.invoices[existingIdx].id : ('inv_' + Date.now()),
@@ -283,9 +348,56 @@ function saveCurrentInvoiceToLedger(silent = false) {
   saveState();
   if (!silent) {
     render();
-    showToast(`Saved ${inv.invoiceNo} to Ledger & CSV Vault`);
+    showToast(`Saved ${inv.invoiceNo} to Local Draft Ledger`);
   }
   return record;
+}
+
+function saveInvoiceToCloud() {
+  ensureInvoiceState();
+  const record = saveCurrentInvoiceToLedger(true);
+  if (!record) return;
+  if (typeof window.requireCloudAuth === 'function') {
+    window.requireCloudAuth(
+      {
+        type: 'save_invoice',
+        label: `Save Invoice ${record.invoiceNo} to Cloud Vault`,
+        payload: record
+      },
+      async () => {
+        if (typeof window.syncInvoiceRecordToCloud === 'function') {
+          await window.syncInvoiceRecordToCloud(record);
+        }
+        render();
+      }
+    );
+  } else {
+    render();
+    showToast(`Saved ${record.invoiceNo} to Vault`);
+  }
+}
+
+function openSavedInvoiceVault() {
+  ensureInvoiceState();
+  if (typeof window.requireCloudAuth === 'function') {
+    window.requireCloudAuth(
+      {
+        type: 'open_invoice_vault',
+        label: 'Open My Saved Invoice Vault',
+        payload: null
+      },
+      async () => {
+        state.invoiceTab = 'ledger';
+        saveState();
+        if (typeof window.pullUserVaultFromCloud === 'function') {
+          await window.pullUserVaultFromCloud();
+        }
+        render();
+      }
+    );
+  } else {
+    setInvoiceSubTab('ledger');
+  }
 }
 
 function buildLiveInvoicePreviewMarkup(inv) {
@@ -1124,8 +1236,16 @@ function renderInvoicePage() {
         <button class="btn btn-soft" onclick="exportInvoicesGoogleSheetsCSV(true)">
           ${ICONS.cloud} <span>Google Sheets CSV</span>
         </button>
-        <button class="btn btn-outline" onclick="saveCurrentInvoiceToLedger(false)">
-          ${ICONS.check} <span>Save to Vault</span>
+        <button class="btn btn-primary" onclick="saveInvoiceToCloud()">
+          ${ICONS.cloud} <span>Save to Cloud</span>
+        </button>
+      </div>
+      <div class="dual-actions" style="margin-top:8px;">
+        <button class="btn btn-outline btn-sm" onclick="saveCurrentInvoiceToLedger(false)">
+          ${ICONS.check} <span>Save Local Draft</span>
+        </button>
+        <button class="btn btn-soft btn-sm" onclick="openSavedInvoiceVault()">
+          ${ICONS.privacy} <span>Open My Saved Vault</span>
         </button>
       </div>
     </div>

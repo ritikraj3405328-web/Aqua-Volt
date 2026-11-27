@@ -173,6 +173,40 @@ function getWarrantyMetrics(unit) {
   return { totalDays, elapsedDays, remainingDays, pctRemaining, status, statusLabel, badgeClass, strokeColor };
 }
 
+function sanitizeText(val, maxLen = 250) {
+  return String(val ?? '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/<\s*\/?\s*script\b[^>]*>/gi, '')
+    .replace(/javascript\s*:/gi, '')
+    .replace(/on[a-z]+\s*=/gi, '')
+    .trim()
+    .slice(0, maxLen);
+}
+
+function sanitizeId(val, fallbackPrefix = 'item') {
+  const clean = String(val ?? '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  return clean || `${fallbackPrefix}_${Date.now()}`;
+}
+
+function validateClientPayload(payload, maxKeys = 30, maxBytes = 28000) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { ok: false, error: 'Invalid data format' };
+  }
+  const keys = Object.keys(payload);
+  if (keys.length === 0 || keys.length > maxKeys) {
+    return { ok: false, error: `Payload exceeds maximum ${maxKeys} fields` };
+  }
+  try {
+    const byteLen = new TextEncoder().encode(JSON.stringify(payload)).length;
+    if (byteLen > maxBytes) {
+      return { ok: false, error: 'Payload size exceeds security limit' };
+    }
+  } catch {
+    return { ok: false, error: 'Could not serialize payload' };
+  }
+  return { ok: true };
+}
+
 function buildInitialState() {
   return {
     theme: 'light',
@@ -187,6 +221,16 @@ function buildInitialState() {
     noteFilter: 'All',
     noteSearch: '',
     noteDraft: { title: '', tag: 'Maintenance', body: '' },
+    warrantyDraft: {
+      type: 'controller',
+      model: 'AquaVault Pro-X7 Dual Tank Controller',
+      serial: 'AV-WLC-' + Math.floor(10000 + Math.random() * 89999),
+      location: 'Overhead Tank (Terrace)',
+      installDate: shiftDays(0),
+      warrantyYears: 2,
+      basePrice: 8450,
+      gstRate: 18
+    },
     customer: {
       name: 'Aarav Sharma',
       accountId: 'AQV-2026-8419',
@@ -307,10 +351,15 @@ let pwaAutoHideTimer = null;
 
 function loadState() {
   try {
+    const base = buildInitialState();
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return buildInitialState();
+    if (!raw) return base;
     const parsed = JSON.parse(raw);
-    return { ...buildInitialState(), ...parsed };
+    return {
+      ...base,
+      ...parsed,
+      warrantyDraft: { ...base.warrantyDraft, ...(parsed.warrantyDraft || {}) }
+    };
   } catch {
     return buildInitialState();
   }
@@ -479,9 +528,13 @@ window.addEventListener('popstate', () => {
   const cert = document.getElementById('certModal');
   const conf = document.getElementById('confirmModal');
   const inst = document.getElementById('installGuideModal');
+  const authM = document.getElementById('lazyAuthModal');
+  const vaultM = document.getElementById('savedVaultModal');
   if (cert && cert.classList.contains('open')) cert.classList.remove('open');
   if (conf && conf.classList.contains('open')) conf.classList.remove('open');
   if (inst && inst.classList.contains('open')) inst.classList.remove('open');
+  if (authM && authM.classList.contains('open')) authM.classList.remove('open');
+  if (vaultM && vaultM.classList.contains('open')) vaultM.classList.remove('open');
 });
 
 /* =========================================================================
@@ -533,7 +586,7 @@ function showToast(msg) {
 }
 
 /* =========================================================================
-   SHELL INJECTION (SHARED ACROSS ALL 7 REAL HTML PAGES)
+   SHELL INJECTION (SHARED ACROSS ALL 8 REAL HTML PAGES)
    ========================================================================= */
 function mountShell() {
   const current = ROUTES.find(r => r.id === CURRENT_PAGE) || ROUTES[0];
@@ -571,6 +624,9 @@ function mountShell() {
         <nav class="sidebar-nav" id="sidebarNav"></nav>
 
         <div class="sidebar-footer">
+          <button class="btn btn-soft btn-sm" style="width:100%;justify-content:center;" onclick="openMySavedVault()">
+            ${ICONS.cloud} <span id="sidebarVaultBtnLabel">Open My Saved Vault</span>
+          </button>
           <button class="theme-pill-btn" style="width:100%;justify-content:center" onclick="toggleTheme()">
             <span id="sidebarThemeIcon"></span>
             <span id="sidebarThemeLabel">Night Mode</span>
@@ -597,6 +653,10 @@ function mountShell() {
           </div>
 
           <div class="topbar-actions">
+            <button class="theme-pill-btn" onclick="openMySavedVault()" aria-label="Open My Saved Cloud Vault" title="Open My Saved Cloud Vault">
+              ${ICONS.cloud}
+              <span id="topVaultBtnLabel">My Vault</span>
+            </button>
             ${isFeatureEnabled('invoice') ? `<a href="invoice.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'invoice' ? 'active' : ''}" aria-label="Invoice Generator" title="Colorful Invoice Generator">${ICONS.receipt}</a>` : ''}
             ${isFeatureEnabled('hub') ? `<a href="hub.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'hub' ? 'active' : ''}" aria-label="Apps Hub" title="New Tab — Apps Hub">${ICONS.hub}</a>` : ''}
             ${isFeatureEnabled('privacy') ? `<a href="privacy.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'privacy' ? 'active' : ''}" aria-label="Privacy & Settings" title="DPDP Privacy & Settings">${ICONS.privacy}</a>` : ''}
@@ -606,6 +666,9 @@ function mountShell() {
             </button>
           </div>
         </header>
+
+        <!-- NON-BLOCKING FIREBASE / GUEST PREVIEW STATUS BANNER -->
+        <div class="firebase-status-bar" id="firebaseStatusBar"></div>
 
         <main class="content-wrap" id="appMain"></main>
       </div>
@@ -648,6 +711,80 @@ function mountShell() {
       </div>
     </div>
 
+    <!-- LAZY AUTH MODAL: "SIGN IN WITH GOOGLE / EMAIL" (ONLY ON PROTECTED ACTIONS) -->
+    <div class="modal-backdrop" id="lazyAuthModal" role="dialog" aria-modal="true" aria-labelledby="lazyAuthModalTitle">
+      <div class="cert-modal" style="max-width:450px;padding:22px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px;">
+          <div>
+            <div class="eyebrow" style="color:var(--primary);">Zero-Trust Private Cloud Vault</div>
+            <h3 class="serif" id="lazyAuthModalTitle" style="font-size:28px;margin:2px 0 0;line-height:1.1;">Sign In to Save &amp; Sync</h3>
+          </div>
+          <button class="icon-circle-btn" onclick="closeLazyAuthModal()" aria-label="Close">${ICONS.close}</button>
+        </div>
+
+        <div id="lazyAuthPendingBanner" class="pending-action-banner">
+          ${ICONS.cloud}
+          <span id="lazyAuthPendingText">Your form data is ready and will auto-save immediately after sign-in.</span>
+        </div>
+
+        <div id="lazyAuthErrorBox" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:12px;background:var(--rose-soft);border:1px solid var(--rose-border);color:var(--rose);font-size:12px;font-weight:700;"></div>
+
+        <button type="button" class="google-auth-btn" onclick="handleGoogleSignIn()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M21.8 12.23c0-.72-.06-1.4-.19-2.05H12v3.88h5.5c-.24 1.26-.96 2.33-2.04 3.05v2.53h3.3c1.93-1.78 3.04-4.4 3.04-7.41z" fill="#4285F4"/>
+            <path d="M12 22c2.75 0 5.06-.91 6.75-2.46l-3.3-2.53c-.91.61-2.08.98-3.45.98-2.65 0-4.9-1.79-5.7-4.2H2.89v2.61A9.99 9.99 0 0 0 12 22z" fill="#34A853"/>
+            <path d="M6.3 13.79A6.01 6.01 0 0 1 5.98 12c0-.62.11-1.23.32-1.79V7.6H2.89A9.99 9.99 0 0 0 2 12c0 1.61.39 3.14 1.08 4.4l3.22-2.61z" fill="#FBBC05"/>
+            <path d="M12 5.98c1.5 0 2.84.52 3.9 1.53l2.92-2.92C17.05 2.94 14.75 2 12 2A9.99 9.99 0 0 0 2.89 7.6l3.41 2.61c.8-2.41 3.05-4.23 5.7-4.23z" fill="#EA4335"/>
+          </svg>
+          <span>Continue with Google</span>
+        </button>
+
+        <div class="auth-divider">or with Email &amp; Password</div>
+
+        <div class="segmented" style="margin-bottom:12px;">
+          <button type="button" class="seg-btn active" id="authTabSignIn" onclick="setLazyAuthTab('signin')">Sign In</button>
+          <button type="button" class="seg-btn" id="authTabSignUp" onclick="setLazyAuthTab('signup')">Create Account</button>
+        </div>
+
+        <form onsubmit="handleEmailAuthSubmit(event)">
+          <div id="authNameFieldWrap" style="display:none;margin-bottom:10px;">
+            <label class="field-label" for="lazyAuthName">Full Name</label>
+            <input class="input" id="lazyAuthName" type="text" maxlength="80" placeholder="Aarav Sharma" />
+          </div>
+          <div style="margin-bottom:10px;">
+            <label class="field-label" for="lazyAuthEmail">Email Address</label>
+            <input class="input" id="lazyAuthEmail" type="email" maxlength="120" required placeholder="you@example.com" autocomplete="email" />
+          </div>
+          <div style="margin-bottom:12px;">
+            <label class="field-label" for="lazyAuthPassword">Password (min 6 characters)</label>
+            <input class="input" id="lazyAuthPassword" type="password" minlength="6" maxlength="128" required placeholder="••••••••" autocomplete="current-password" />
+          </div>
+          <button type="submit" class="btn btn-primary" id="lazyAuthSubmitBtn" style="width:100%;">
+            ${ICONS.privacy} <span id="lazyAuthSubmitLabel">Sign In &amp; Auto-Save Now</span>
+          </button>
+        </form>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;font-size:12px;">
+          <button type="button" style="color:var(--primary);font-weight:700;" onclick="handleCustomerPasswordReset()">Forgot Password?</button>
+          <button type="button" style="color:var(--ink-tertiary);font-weight:600;" onclick="closeLazyAuthModal()">Continue in Guest Preview</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MY SAVED CLOUD VAULT MODAL (STRICT PER-UID ISOLATION) -->
+    <div class="modal-backdrop" id="savedVaultModal" role="dialog" aria-modal="true">
+      <div class="cert-modal" style="max-width:480px;padding:22px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px;">
+          <div>
+            <div class="eyebrow" style="color:var(--emerald);">Zero Cross-User Access &bull; UID Isolated</div>
+            <h3 class="serif" style="font-size:28px;margin:2px 0 0;line-height:1.1;">My Private Cloud Vault</h3>
+          </div>
+          <button class="icon-circle-btn" onclick="closeSavedVaultModal()" aria-label="Close">${ICONS.close}</button>
+        </div>
+        <div id="savedVaultModalBody"></div>
+      </div>
+    </div>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   `;
 
@@ -687,11 +824,19 @@ function mountShell() {
   document.getElementById('installGuideModal').addEventListener('click', (e) => {
     if (e.target.id === 'installGuideModal') closeInstallGuideModal();
   });
+  document.getElementById('lazyAuthModal').addEventListener('click', (e) => {
+    if (e.target.id === 'lazyAuthModal') closeLazyAuthModal();
+  });
+  document.getElementById('savedVaultModal').addEventListener('click', (e) => {
+    if (e.target.id === 'savedVaultModal') closeSavedVaultModal();
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeCertificate();
       closeConfirmModal();
       closeInstallGuideModal();
+      closeLazyAuthModal();
+      closeSavedVaultModal();
     }
     if (CURRENT_PAGE === 'calculator' && state.calcMode === 'standard') {
       const tag = (document.activeElement?.tagName || '').toLowerCase();
@@ -762,14 +907,24 @@ function renderHome() {
           <p class="hero-desc">
             Day-by-day decreasing warranty telemetry, verified GST digital bills, one-click engineer dispatch, and synced workspace tools.
           </p>
-          <div class="hero-actions">
+          <div class="hero-actions" style="max-width:440px;">
             <a href="warranty.html" class="hero-btn-light">
               ${ICONS.warranty}
               <span>Warranty Graph</span>
             </a>
-            <button class="hero-btn-glass" onclick="openCertificate('${primaryUnit.id}')">
+            <button class="hero-btn-glass" onclick="triggerGenerateOfficialWarrantyCard('${primaryUnit.id}')">
               ${ICONS.receipt}
-              <span>Digital Bill</span>
+              <span>Official Warranty Card</span>
+            </button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+            <button class="hero-btn-glass" style="min-height:36px;font-size:11.5px;padding:0 12px;" onclick="openMySavedVault()">
+              ${ICONS.cloud}
+              <span>Open My Saved Vault</span>
+            </button>
+            <button class="hero-btn-glass" style="min-height:36px;font-size:11.5px;padding:0 12px;" onclick="triggerSaveAllToCloud()">
+              ${ICONS.check}
+              <span>Save to Cloud</span>
             </button>
           </div>
         </div>
@@ -993,10 +1148,18 @@ function renderWarranty() {
         </div>
 
         <div class="dual-actions" style="margin-top:16px;">
-          <button class="btn btn-primary" onclick="openCertificate('${unit.id}')">
-            ${ICONS.receipt} <span>Digital Bill</span>
+          <button class="btn btn-primary" onclick="triggerGenerateOfficialWarrantyCard('${unit.id}')">
+            ${ICONS.receipt} <span>Generate Official Warranty Card</span>
           </button>
-          <button class="btn btn-outline" onclick="openServiceForUnit('${unit.id}')">
+          <button class="btn btn-outline" onclick="triggerSaveUnitToCloud('${unit.id}')">
+            ${ICONS.cloud} <span>Save to Cloud</span>
+          </button>
+        </div>
+        <div class="dual-actions" style="margin-top:8px;">
+          <button class="btn btn-soft btn-sm" onclick="openCertificate('${unit.id}')">
+            ${ICONS.receipt} <span>Preview Guest Bill</span>
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="openServiceForUnit('${unit.id}')">
             ${ICONS.wrench} <span>Book Service</span>
           </button>
         </div>
@@ -1160,17 +1323,144 @@ function openServiceForUnit(unitId) {
   }
 }
 
+function updateWarrantyDraftField(field, val) {
+  if (!state.warrantyDraft) state.warrantyDraft = buildInitialState().warrantyDraft;
+  if (field === 'basePrice') {
+    const n = Number(val);
+    state.warrantyDraft.basePrice = Number.isFinite(n) ? Math.max(0, Math.min(10000000, n)) : 0;
+  } else if (field === 'warrantyYears') {
+    const y = Number(val);
+    state.warrantyDraft.warrantyYears = Number.isFinite(y) ? Math.max(1, Math.min(10, y)) : 2;
+  } else if (field === 'type') {
+    state.warrantyDraft.type = val === 'stopper' ? 'stopper' : 'controller';
+  } else {
+    const limits = { model: 120, serial: 60, location: 120, installDate: 20 };
+    state.warrantyDraft[field] = sanitizeText(val, limits[field] || 120);
+  }
+  saveState();
+}
+
+function submitGenerateOfficialWarrantyCard(e) {
+  e.preventDefault();
+  const d = state.warrantyDraft || buildInitialState().warrantyDraft;
+  const model = sanitizeText(d.model || 'AquaVault Pro-X7 Dual Tank Controller', 120);
+  const serial = sanitizeText(d.serial || ('AV-WLC-' + Math.floor(10000 + Math.random() * 89999)), 60);
+  const location = sanitizeText(d.location || 'Overhead Tank', 120);
+  const installDate = /^\d{4}-\d{2}-\d{2}$/.test(d.installDate) ? d.installDate : shiftDays(0);
+  const years = Math.max(1, Math.min(10, Number(d.warrantyYears) || 2));
+  const installMs = parseISO(installDate).getTime();
+  const expiryDate = new Date(installMs + years * 365 * DAY_MS).toISOString().slice(0, 10);
+  const basePrice = Math.max(0, Math.min(10000000, Number(d.basePrice) || 8450));
+
+  const newUnit = {
+    id: 'u_' + Date.now(),
+    type: d.type === 'stopper' ? 'stopper' : 'controller',
+    model,
+    serial,
+    location,
+    installDate,
+    expiryDate,
+    invoiceNo: 'INV-AQV-2026-' + Math.floor(1000 + Math.random() * 8999),
+    basePrice,
+    gstRate: 18
+  };
+
+  const check = validateClientPayload(newUnit, 30);
+  if (!check.ok) {
+    showToast(check.error);
+    return;
+  }
+
+  requireCloudAuth(
+    {
+      type: 'register_warranty',
+      label: `Generate Official Warranty Card for ${newUnit.model} (${newUnit.serial})`,
+      payload: newUnit
+    },
+    async () => {
+      const existsIdx = state.units.findIndex(u => u.serial === newUnit.serial);
+      if (existsIdx >= 0) {
+        state.units[existsIdx] = { ...state.units[existsIdx], ...newUnit };
+      } else {
+        state.units.unshift(newUnit);
+      }
+      state.selectedUnitId = newUnit.id;
+      state.warrantyDraft.serial = 'AV-WLC-' + Math.floor(10000 + Math.random() * 89999);
+      saveState();
+      await syncUnitToCloud(newUnit);
+      render();
+      openCertificate(newUnit.id);
+      showToast(`Official Warranty Card generated & saved to your Cloud Vault`);
+    }
+  );
+}
+
 function renderDevices() {
   const tab = state.devicesSubTab || 'units';
   const controllers = state.units.filter(u => u.type === 'controller').length;
   const stoppers = state.units.filter(u => u.type === 'stopper').length;
+  const wd = state.warrantyDraft || buildInitialState().warrantyDraft;
 
   let contentHtml = '';
   if (tab === 'units') {
     contentHtml = `
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-        <span class="badge badge-violet">${controllers} Water Level Controllers</span>
-        <span class="badge badge-violet">${stoppers} Water Stoppers</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <span class="badge badge-violet">${controllers} Water Level Controllers</span>
+          <span class="badge badge-violet">${stoppers} Water Stoppers</span>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-soft btn-sm" onclick="openMySavedVault()">
+            ${ICONS.cloud} <span>Open My Saved Vault</span>
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="triggerSaveAllToCloud()">
+            ${ICONS.check} <span>Save to Cloud</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- GUEST-ACCESSIBLE FORM: REGISTER & GENERATE OFFICIAL WARRANTY CARD -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="eyebrow" style="color:var(--primary);margin-bottom:4px;">Explore First &bull; Sign In Only When Generating</div>
+        <h3 style="font-size:17px;font-weight:700;margin:0 0 12px;">Register Device &amp; Generate Official Warranty Card</h3>
+        <form onsubmit="submitGenerateOfficialWarrantyCard(event)">
+          <div class="spec-grid" style="margin-bottom:10px;">
+            <div>
+              <label class="field-label">Hardware Type</label>
+              <select class="select" onchange="updateWarrantyDraftField('type', this.value)">
+                <option value="controller" ${wd.type === 'controller' ? 'selected' : ''}>Water Level Controller</option>
+                <option value="stopper" ${wd.type === 'stopper' ? 'selected' : ''}>Brass Water Stopper</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Serial Number</label>
+              <input class="input mono" maxlength="60" required value="${escapeHtml(wd.serial)}" oninput="updateWarrantyDraftField('serial', this.value)" />
+            </div>
+          </div>
+          <div class="spec-grid" style="margin-bottom:10px;">
+            <div>
+              <label class="field-label">Product Model</label>
+              <input class="input" maxlength="120" required value="${escapeHtml(wd.model)}" oninput="updateWarrantyDraftField('model', this.value)" />
+            </div>
+            <div>
+              <label class="field-label">Installation Location</label>
+              <input class="input" maxlength="120" required value="${escapeHtml(wd.location)}" oninput="updateWarrantyDraftField('location', this.value)" />
+            </div>
+          </div>
+          <div class="spec-grid" style="margin-bottom:12px;">
+            <div>
+              <label class="field-label">Installation Date</label>
+              <input class="input mono" type="date" required value="${escapeHtml(wd.installDate)}" onchange="updateWarrantyDraftField('installDate', this.value)" />
+            </div>
+            <div>
+              <label class="field-label">Taxable Value (₹)</label>
+              <input class="input mono" type="number" min="0" max="10000000" required value="${Number(wd.basePrice) || 8450}" oninput="updateWarrantyDraftField('basePrice', this.value)" />
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">
+            ${ICONS.warranty} <span>Generate Official Warranty Card</span>
+          </button>
+        </form>
       </div>
 
       <div class="device-list">
@@ -1201,8 +1491,8 @@ function renderDevices() {
               </div>
 
               <div class="dual-actions">
-                <button class="btn btn-outline btn-sm" onclick="openCertificate('${u.id}')">
-                  ${ICONS.receipt} <span>Digital Bill</span>
+                <button class="btn btn-primary btn-sm" onclick="triggerGenerateOfficialWarrantyCard('${u.id}')">
+                  ${ICONS.receipt} <span>Official Card</span>
                 </button>
                 <button class="btn btn-soft btn-sm" onclick="openServiceForUnit('${u.id}')">
                   ${ICONS.wrench} <span>Book Service</span>
@@ -1238,7 +1528,7 @@ function renderDevices() {
           </div>
           <div style="text-align:right;flex-shrink:0;">
             <div class="mono" style="font-size:14px;font-weight:700;margin-bottom:6px;">${formatINR(total)}</div>
-            <button class="btn btn-soft btn-sm" onclick="openCertificate('${u.id}')">Certificate</button>
+            <button class="btn btn-soft btn-sm" onclick="triggerGenerateOfficialWarrantyCard('${u.id}')">Official Card</button>
           </div>
         </div>
       `;
@@ -1267,10 +1557,10 @@ function renderDevices() {
           </div>
           <div style="margin-bottom:14px;">
             <label class="field-label" for="srvNotes">Additional Details (Optional)</label>
-            <textarea class="textarea" id="srvNotes" style="min-height:80px;" placeholder="Preferred visit slot or observations..."></textarea>
+            <textarea class="textarea" id="srvNotes" maxlength="600" style="min-height:80px;" placeholder="Preferred visit slot or observations..."></textarea>
           </div>
           <button type="submit" class="btn btn-primary" style="width:100%;">
-            ${ICONS.wrench} <span>Submit Service Request</span>
+            ${ICONS.wrench} <span>Submit &amp; Save Service Request to Cloud</span>
           </button>
         </form>
       </div>
@@ -1298,7 +1588,7 @@ function renderDevices() {
       <div class="page-header">
         <div class="page-eyebrow">Hardware &amp; Care</div>
         <h1 class="page-h1">Devices, Bills &amp; Service</h1>
-        <p class="page-sub">Inspect every installed unit, download official GST warranty certificates, or request an engineer.</p>
+        <p class="page-sub">Inspect every installed unit, generate official GST warranty certificates, or request an engineer.</p>
       </div>
 
       <div class="segmented" role="tablist">
@@ -1314,24 +1604,43 @@ function renderDevices() {
 
 function submitServiceRequest(e) {
   e.preventDefault();
-  const unitId = document.getElementById('srvUnit').value;
-  const issue = document.getElementById('srvIssue').value;
-  const notes = document.getElementById('srvNotes').value.trim();
+  const unitId = sanitizeId(document.getElementById('srvUnit')?.value, 'u1');
+  const issue = sanitizeText(document.getElementById('srvIssue')?.value || 'Sensor Calibration', 140);
+  const notes = sanitizeText(document.getElementById('srvNotes')?.value || '', 600);
   const unit = state.units.find(u => u.id === unitId) || state.units[0];
 
   const ticket = {
     id: 'SRV-' + Math.floor(1000 + Math.random() * 9000),
     unitId: unit.id,
-    unitName: unit.model,
+    unitName: sanitizeText(unit.model, 120),
     issue,
     notes,
     status: 'Requested',
     date: formatDate(shiftDays(0))
   };
+
+  const check = validateClientPayload(ticket, 30);
+  if (!check.ok) {
+    showToast(check.error);
+    return;
+  }
+
   state.tickets.unshift(ticket);
   saveState();
   render();
-  showToast(`Service request ${ticket.id} registered`);
+
+  requireCloudAuth(
+    {
+      type: 'save_service_request',
+      label: `Sync Service Request ${ticket.id} to Cloud Vault`,
+      payload: ticket
+    },
+    async () => {
+      await syncServiceTicketToCloud(ticket);
+      render();
+      showToast(`Service request ${ticket.id} synced to your Cloud Vault`);
+    }
+  );
 }
 
 /* =========================================================================
@@ -1567,40 +1876,68 @@ function calcInput(key) {
 function saveSpecialCalc(mode) {
   let label = '', expr = '', result = 0;
   if (mode === 'gst') {
-    const qty = Math.max(0, parseFloat(document.getElementById('cQty')?.value) || 0);
-    const rate = Math.max(0, parseFloat(document.getElementById('cRate')?.value) || 0);
-    const gst = Math.max(0, parseFloat(document.getElementById('cGst')?.value) || 0);
+    const qty = Math.max(0, Math.min(100000, parseFloat(document.getElementById('cQty')?.value) || 0));
+    const rate = Math.max(0, Math.min(10000000, parseFloat(document.getElementById('cRate')?.value) || 0));
+    const gst = Math.max(0, Math.min(100, parseFloat(document.getElementById('cGst')?.value) || 0));
     const sub = qty * rate;
     result = Math.round((sub + sub * gst / 100) * 100) / 100;
     if (result <= 0) { showToast('Enter quantity and rate above 0'); return; }
-    label = document.getElementById('cGstLabel')?.value.trim() || 'Qty × Rate + GST';
+    label = sanitizeText(document.getElementById('cGstLabel')?.value || 'Qty × Rate + GST', 140);
     expr = `${qty} × ${rate} + ${gst}% GST`;
   } else if (mode === 'split') {
-    const total = Math.max(0, parseFloat(document.getElementById('cSplitTotal')?.value) || 0);
-    const people = Math.max(1, parseInt(document.getElementById('cSplitPeople')?.value, 10) || 1);
+    const total = Math.max(0, Math.min(100000000, parseFloat(document.getElementById('cSplitTotal')?.value) || 0));
+    const people = Math.max(1, Math.min(10000, parseInt(document.getElementById('cSplitPeople')?.value, 10) || 1));
     result = Math.round((total / people) * 100) / 100;
     if (result <= 0) { showToast('Enter a total bill amount above 0'); return; }
     label = `Expense Split (${people} shares)`;
     expr = `${formatINR(total)} ÷ ${people}`;
   } else if (mode === 'margin') {
-    const cost = Math.max(0, parseFloat(document.getElementById('cCost')?.value) || 0);
-    const sell = Math.max(0, parseFloat(document.getElementById('cSell')?.value) || 0);
+    const cost = Math.max(0, Math.min(100000000, parseFloat(document.getElementById('cCost')?.value) || 0));
+    const sell = Math.max(0, Math.min(100000000, parseFloat(document.getElementById('cSell')?.value) || 0));
     if (cost === 0 && sell === 0) { showToast('Enter cost and selling price'); return; }
     result = Math.round((sell - cost) * 100) / 100;
     const pct = sell > 0 ? Math.round(((sell - cost) / sell) * 1000) / 10 : 0;
     label = `Net Margin (${pct}%)`;
     expr = `Sell ${sell} − Cost ${cost}`;
   }
-  state.tape.unshift({
+  const entry = {
     id: 't' + Date.now(),
-    label,
-    expr,
+    label: sanitizeText(label, 140),
+    expr: sanitizeText(expr, 140),
     result,
     time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-  });
+  };
+  const check = validateClientPayload(entry, 30);
+  if (!check.ok) {
+    showToast(check.error);
+    return;
+  }
+  state.tape.unshift(entry);
   saveState();
   render();
   showToast('Saved to Hisab-Kitab tape');
+}
+
+function syncCalculatorTapeToCloud() {
+  if (!state.tape.length) {
+    showToast('Add a calculation to the tape first');
+    return;
+  }
+  const latest = state.tape[0];
+  requireCloudAuth(
+    {
+      type: 'sync_calc_tape',
+      label: `Sync ${state.tape.length} Hisab-Kitab calculation(s) to Cloud Vault`,
+      payload: latest
+    },
+    async () => {
+      for (const item of state.tape.slice(0, 20)) {
+        await syncCalcEntryToCloud(item);
+      }
+      render();
+      showToast(`Synced ${state.tape.length} calculation(s) to your Cloud Vault`);
+    }
+  );
 }
 
 function recallTape(val) {
@@ -1617,6 +1954,7 @@ function recallTape(val) {
 function deleteTape(id) {
   state.tape = state.tape.filter(t => t.id !== id);
   saveState();
+  deleteCloudRecord('calcEntries', id);
   render();
 }
 
@@ -1658,7 +1996,7 @@ function renderCalculator() {
         <div style="display:grid;gap:12px;">
           <div>
             <label class="field-label">Item Label</label>
-            <input class="input" id="cGstLabel" placeholder="e.g. Sensor Wire / Plumber Bill" />
+            <input class="input" id="cGstLabel" maxlength="140" placeholder="e.g. Sensor Wire / Plumber Bill" />
           </div>
           <div class="spec-grid">
             <div>
@@ -1749,12 +2087,17 @@ function renderCalculator() {
         ${modePanel}
 
         <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
             <div style="min-width:0;">
               <div class="eyebrow">Running Tape</div>
               <div class="mono" style="font-size:17px;font-weight:700;color:var(--primary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Sum: ${formatINR(tapeSum)}</div>
             </div>
-            ${state.tape.length ? `<button class="btn btn-outline btn-sm" onclick="clearTape()">Clear</button>` : ''}
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-primary btn-sm" onclick="syncCalculatorTapeToCloud()">
+                ${ICONS.cloud} <span>Save to Cloud</span>
+              </button>
+              ${state.tape.length ? `<button class="btn btn-outline btn-sm" onclick="clearTape()">Clear</button>` : ''}
+            </div>
           </div>
 
           ${state.tape.length === 0 ? `
@@ -1803,7 +2146,7 @@ function updateLiveSpecial() {
 }
 
 /* =========================================================================
-   PAGE 5: NOTEPAD & AUTO-SYNC (FOCUS-SAFE LIVE SEARCH)
+   PAGE 5: NOTEPAD & AUTO-SYNC (FOCUS-SAFE LIVE SEARCH + LAZY CLOUD AUTH)
    ========================================================================= */
 function toggleSyncOption(key) {
   state.sync[key] = !state.sync[key];
@@ -1816,63 +2159,99 @@ function toggleSyncOption(key) {
 }
 
 function updateSyncEmail(val) {
-  state.customer.email = val.trim();
+  state.customer.email = sanitizeText(val, 120);
   saveState();
 }
 
 function triggerManualSync() {
-  state.sync.lastSynced = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-  saveState();
-  render();
-  showToast(`Synced ${state.notes.length} notes with ${state.customer.email}`);
+  requireCloudAuth(
+    {
+      type: 'sync_notes',
+      label: `Sync ${state.notes.length} note(s) to Private Cloud Vault`,
+      payload: state.notes
+    },
+    async () => {
+      for (const note of state.notes.slice(0, 30)) {
+        await syncNoteToCloud(note);
+      }
+      state.sync.lastSynced = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      saveState();
+      render();
+      showToast(`Synced ${state.notes.length} note(s) to your Private Cloud Vault`);
+    }
+  );
 }
 
 function setDraftField(field, val) {
-  state.noteDraft[field] = val;
+  const maxLen = field === 'title' ? 140 : 4000;
+  state.noteDraft[field] = sanitizeText(val, maxLen);
   saveState();
   const indicator = document.getElementById('draftStatus');
   if (indicator) indicator.textContent = 'Draft auto-saved';
 }
 
 function setDraftTag(tag) {
-  state.noteDraft.tag = tag;
+  const allowed = ['General', 'Maintenance', 'Warranty', 'Expense'];
+  state.noteDraft.tag = allowed.includes(tag) ? tag : 'General';
   saveState();
   render();
 }
 
 function saveNote(e) {
   e.preventDefault();
-  const title = state.noteDraft.title.trim();
-  const body = state.noteDraft.body.trim();
+  const title = sanitizeText(state.noteDraft.title, 140);
+  const body = sanitizeText(state.noteDraft.body, 4000);
   if (!title && !body) {
     showToast('Write a title or note first');
     return;
   }
-  state.notes.unshift({
+  const newNote = {
     id: 'n' + Date.now(),
     title: title || 'Untitled Note',
     tag: state.noteDraft.tag || 'General',
     body,
     pinned: false,
     updatedAt: formatDate(shiftDays(0))
-  });
+  };
+  const check = validateClientPayload(newNote, 30);
+  if (!check.ok) {
+    showToast(check.error);
+    return;
+  }
+  state.notes.unshift(newNote);
   state.noteDraft = { title: '', tag: state.noteDraft.tag, body: '' };
   state.sync.lastSynced = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   saveState();
   render();
-  showToast(state.sync.driveAutoSave ? 'Note saved & queued for Drive backup' : 'Note saved');
+
+  requireCloudAuth(
+    {
+      type: 'save_note',
+      label: `Save & Sync Note "${newNote.title}" to Cloud Vault`,
+      payload: newNote
+    },
+    async () => {
+      await syncNoteToCloud(newNote);
+      render();
+      showToast(`Note "${newNote.title}" saved to your Private Cloud Vault`);
+    }
+  );
 }
 
 function togglePinNote(id) {
   const n = state.notes.find(x => x.id === id);
-  if (n) n.pinned = !n.pinned;
-  saveState();
-  updateNotesList();
+  if (n) {
+    n.pinned = !n.pinned;
+    saveState();
+    if (customerUser) syncNoteToCloud(n);
+    updateNotesList();
+  }
 }
 
 function deleteNote(id) {
   state.notes = state.notes.filter(x => x.id !== id);
   saveState();
+  deleteCloudRecord('notes', id);
   updateNotesList();
   showToast('Note deleted');
 }
@@ -1929,7 +2308,7 @@ function buildNotesListMarkup() {
 }
 
 function handleNoteSearch(val) {
-  state.noteSearch = val;
+  state.noteSearch = sanitizeText(val, 80);
   updateNotesList();
 }
 
@@ -1952,7 +2331,7 @@ function renderNotes() {
       <div class="page-header">
         <div class="page-eyebrow">Personal Vault</div>
         <h1 class="page-h1">Notepad &amp; Auto-Sync</h1>
-        <p class="page-sub">Capture maintenance logs, tank reminders, and bills with Gmail &amp; Google Drive backup.</p>
+        <p class="page-sub">Capture maintenance logs, tank reminders, and bills with Private Cloud Vault, Gmail &amp; Google Drive backup.</p>
       </div>
 
       <div class="card sync-card">
@@ -1960,18 +2339,23 @@ function renderNotes() {
           <div style="display:flex;align-items:center;gap:10px;">
             <span class="icon-badge">${ICONS.cloud}</span>
             <div>
-              <div style="font-size:14px;font-weight:700;">Google Account Sync</div>
+              <div style="font-size:14px;font-weight:700;">Cloud &amp; Google Account Sync</div>
               <div style="font-size:12px;color:var(--emerald);font-weight:600;">Last synced ${escapeHtml(state.sync.lastSynced)}</div>
             </div>
           </div>
-          <button class="btn btn-soft btn-sm" onclick="triggerManualSync()">
-            ${ICONS.refresh} <span>Sync Now</span>
-          </button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary btn-sm" onclick="triggerManualSync()">
+              ${ICONS.refresh} <span>Sync Data</span>
+            </button>
+            <button class="btn btn-soft btn-sm" onclick="openMySavedVault()">
+              ${ICONS.cloud} <span>My Vault</span>
+            </button>
+          </div>
         </div>
 
         <div>
           <label class="field-label" for="syncEmailInput">Linked Gmail Address</label>
-          <input class="input" id="syncEmailInput" type="email" value="${escapeHtml(state.customer.email)}" onchange="updateSyncEmail(this.value)" />
+          <input class="input" id="syncEmailInput" type="email" maxlength="120" value="${escapeHtml(state.customer.email)}" onchange="updateSyncEmail(this.value)" />
         </div>
 
         <div class="sync-row">
@@ -1997,13 +2381,13 @@ function renderNotes() {
           <span id="draftStatus" style="font-size:11.5px;color:var(--ink-tertiary);">Auto-save active</span>
         </div>
         <form onsubmit="saveNote(event)">
-          <input class="input" style="margin-bottom:10px;" placeholder="Note title..." value="${escapeHtml(state.noteDraft.title)}" oninput="setDraftField('title', this.value)" />
+          <input class="input" style="margin-bottom:10px;" maxlength="140" placeholder="Note title..." value="${escapeHtml(state.noteDraft.title)}" oninput="setDraftField('title', this.value)" />
           <div class="tag-row" style="margin-bottom:10px;">
             ${tags.map(t => `<button type="button" class="chip-btn ${state.noteDraft.tag === t ? 'active' : ''}" onclick="setDraftTag('${t}')">${t}</button>`).join('')}
           </div>
-          <textarea class="textarea" style="margin-bottom:12px;" placeholder="Write tank settings, technician notes, or expense memos..." oninput="setDraftField('body', this.value)">${escapeHtml(state.noteDraft.body)}</textarea>
+          <textarea class="textarea" style="margin-bottom:12px;" maxlength="4000" placeholder="Write tank settings, technician notes, or expense memos..." oninput="setDraftField('body', this.value)">${escapeHtml(state.noteDraft.body)}</textarea>
           <button type="submit" class="btn btn-primary" style="width:100%;">
-            ${ICONS.check} <span>Save &amp; Sync Note</span>
+            ${ICONS.check} <span>Save &amp; Sync Note to Cloud</span>
           </button>
         </form>
       </div>
@@ -2011,7 +2395,7 @@ function renderNotes() {
       <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;">
         <div style="position:relative;">
           <span style="position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--ink-tertiary);pointer-events:none;">${ICONS.search}</span>
-          <input class="input" style="padding-left:40px;" placeholder="Search saved notes..." value="${escapeHtml(state.noteSearch)}" oninput="handleNoteSearch(this.value)" />
+          <input class="input" style="padding-left:40px;" maxlength="80" placeholder="Search saved notes..." value="${escapeHtml(state.noteSearch)}" oninput="handleNoteSearch(this.value)" />
         </div>
         <div class="tag-row">
           ${filterTags.map(t => `<button class="chip-btn ${state.noteFilter === t ? 'active' : ''}" onclick="setNoteFilter('${t}')">${t}</button>`).join('')}
@@ -2053,19 +2437,22 @@ function renderHub() {
       </div>
 
       <div class="hub-grid">
-        ${items.map(app => `
-          <a class="hub-card" href="${app.url}" target="_blank" rel="noopener noreferrer">
-            <div class="hub-icon">${ICONS[app.icon]}</div>
-            <div class="hub-body">
-              <div class="hub-name-row">
-                <span class="hub-name">${escapeHtml(app.name)}</span>
-                <span class="hub-tag">${escapeHtml(app.category)}</span>
+        ${items.map(app => {
+          const safeUrl = /^https:\/\//i.test(String(app.url || '')) ? app.url : 'https://www.google.com';
+          return `
+            <a class="hub-card" href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">
+              <div class="hub-icon">${ICONS[app.icon] || ICONS.globe}</div>
+              <div class="hub-body">
+                <div class="hub-name-row">
+                  <span class="hub-name">${escapeHtml(app.name)}</span>
+                  <span class="hub-tag">${escapeHtml(app.category)}</span>
+                </div>
+                <div class="hub-desc">${escapeHtml(app.desc)}</div>
               </div>
-              <div class="hub-desc">${escapeHtml(app.desc)}</div>
-            </div>
-            <div class="hub-arrow" aria-hidden="true">${ICONS.arrowUpRight}</div>
-          </a>
-        `).join('')}
+              <div class="hub-arrow" aria-hidden="true">${ICONS.arrowUpRight}</div>
+            </a>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
@@ -2222,7 +2609,671 @@ function renderPrivacy() {
 }
 
 /* =========================================================================
-   UTILITIES & BOOT
+   CRASH-PROOF FIREBASE, LAZY AUTH & STRICT PER-UID CLOUD VAULT ENGINE
+   ========================================================================= */
+let fbCustomerApp = null;
+let fbCustomerAuth = null;
+let fbCustomerDb = null;
+let fbAuthMod = null;
+let fbFsMod = null;
+let customerUser = null;
+let firebaseConnected = false;
+let firebaseStatusNote = 'Explore First (Guest Preview Mode)';
+let lazyAuthMode = 'signin'; // 'signin' | 'signup'
+let pendingCloudAction = null;
+let pendingCloudCallback = null;
+
+function isCustomerFirebaseConfigReady(cfg) {
+  return Boolean(
+    cfg &&
+    typeof cfg.apiKey === 'string' &&
+    cfg.apiKey.trim().length > 10 &&
+    !cfg.apiKey.includes('YOUR_FIREBASE_API_KEY') &&
+    typeof cfg.projectId === 'string' &&
+    cfg.projectId.trim().length > 2 &&
+    !cfg.projectId.includes('YOUR_PROJECT_ID')
+  );
+}
+
+function updateFirebaseStatusBanner() {
+  const bar = document.getElementById('firebaseStatusBar');
+  const topLbl = document.getElementById('topVaultBtnLabel');
+  const sideLbl = document.getElementById('sidebarVaultBtnLabel');
+
+  if (customerUser) {
+    const shortEmail = sanitizeText(customerUser.email || 'Cloud Vault', 28);
+    if (topLbl) topLbl.textContent = 'Vault Active';
+    if (sideLbl) sideLbl.textContent = `Vault: ${shortEmail}`;
+    if (bar) {
+      bar.innerHTML = `
+        <div class="firebase-status-inner connected">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+            <span class="badge-dot" style="background:var(--emerald);"></span>
+            <span style="font-weight:700;color:var(--ink);">Private Cloud Vault Connected</span>
+            <span class="mono" style="color:var(--ink-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(customerUser.email)}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn btn-soft btn-sm" style="min-height:28px;padding:0 10px;font-size:11px;" onclick="openMySavedVault()">My Vault</button>
+            <button class="btn btn-outline btn-sm" style="min-height:28px;padding:0 10px;font-size:11px;" onclick="handleCustomerSignOut()">Sign Out</button>
+          </div>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  if (topLbl) topLbl.textContent = 'My Vault';
+  if (sideLbl) sideLbl.textContent = 'Open My Saved Vault';
+
+  if (!bar) return;
+  if (!firebaseConnected) {
+    bar.innerHTML = `
+      <div class="firebase-status-inner standby">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+          <span class="badge-dot" style="background:var(--amber);"></span>
+          <span style="font-weight:700;color:var(--ink);">Guest Preview Mode Active</span>
+          <span style="color:var(--ink-secondary);font-size:11.5px;">Explore all tools freely &bull; Connect <code class="mono">firebase-config.js</code> for live Cloud Sync</span>
+        </div>
+        <button class="btn btn-outline btn-sm" style="min-height:28px;padding:0 10px;font-size:11px;" onclick="openMySavedVault()">Cloud Vault Info</button>
+      </div>
+    `;
+  } else {
+    bar.innerHTML = `
+      <div class="firebase-status-inner">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+          <span class="badge-dot" style="background:var(--primary);"></span>
+          <span style="font-weight:700;color:var(--ink);">Explore First Mode</span>
+          <span style="color:var(--ink-secondary);font-size:11.5px;">Use all tools without login &bull; Sign in only when you click Save or Sync</span>
+        </div>
+        <button class="btn btn-soft btn-sm" style="min-height:28px;padding:0 10px;font-size:11px;" onclick="openMySavedVault()">Open My Saved Vault</button>
+      </div>
+    `;
+  }
+}
+
+async function initCustomerFirebase() {
+  try {
+    const cfgMod = await import('./firebase-config.js');
+    const cfg = cfgMod.firebaseConfig || {};
+    const dbId = cfgMod.firestoreDatabaseId || '(default)';
+
+    if (!isCustomerFirebaseConfigReady(cfg)) {
+      firebaseConnected = false;
+      firebaseStatusNote = 'Firebase Standby — Paste your Firebase Web config in firebase-config.js';
+      updateFirebaseStatusBanner();
+      return;
+    }
+
+    const [appMod, authMod, fsMod] = await Promise.all([
+      import('https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js'),
+      import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js')
+    ]);
+
+    fbAuthMod = authMod;
+    fbFsMod = fsMod;
+    fbCustomerApp = appMod.getApps().length ? appMod.getApp() : appMod.initializeApp(cfg);
+    fbCustomerAuth = authMod.getAuth(fbCustomerApp);
+    try {
+      fbCustomerDb = dbId && dbId !== '(default)'
+        ? fsMod.getFirestore(fbCustomerApp, dbId)
+        : fsMod.getFirestore(fbCustomerApp);
+    } catch {
+      fbCustomerDb = fsMod.getFirestore(fbCustomerApp);
+    }
+
+    firebaseConnected = true;
+    updateFirebaseStatusBanner();
+
+    authMod.onAuthStateChanged(fbCustomerAuth, async (user) => {
+      customerUser = user || null;
+      if (user) {
+        state.customer.email = sanitizeText(user.email || state.customer.email, 120);
+        if (user.displayName) {
+          state.customer.name = sanitizeText(user.displayName, 80);
+        }
+        state.customer.accountId = 'AQV-' + sanitizeId(user.uid.slice(0, 8).toUpperCase(), 'USER');
+        saveState();
+        updateFirebaseStatusBanner();
+
+        // Ensure isolated user profile document under /users/{uid}
+        await ensureUserProfileDoc(user);
+
+        // If user triggered a protected action before signing in, run it automatically now!
+        if (pendingCloudCallback) {
+          const cb = pendingCloudCallback;
+          const act = pendingCloudAction;
+          pendingCloudCallback = null;
+          pendingCloudAction = null;
+          closeLazyAuthModal();
+          try {
+            await cb();
+            showToast(`Signed in & auto-saved: ${act?.label || 'Saved to Cloud Vault'}`);
+          } catch (err) {
+            showToast('Signed in — pulling your Cloud Vault');
+          }
+        } else {
+          await pullUserVaultFromCloud(true);
+        }
+        render();
+      } else {
+        updateFirebaseStatusBanner();
+      }
+    });
+  } catch (err) {
+    // Never crash or show a blank screen even if Firebase CDN or config fails
+    firebaseConnected = false;
+    firebaseStatusNote = 'Offline / Guest Preview Mode';
+    updateFirebaseStatusBanner();
+  }
+}
+
+async function ensureUserProfileDoc(user) {
+  if (!fbCustomerDb || !fbFsMod || !user) return;
+  try {
+    const profilePayload = {
+      uid: user.uid,
+      email: sanitizeText(user.email || '', 120),
+      displayName: sanitizeText(user.displayName || state.customer.name || 'AquaVault Customer', 80),
+      accountId: sanitizeText(state.customer.accountId || 'AQV-2026', 40),
+      updatedAt: new Date().toISOString()
+    };
+    const check = validateClientPayload(profilePayload, 30);
+    if (!check.ok) return;
+    await fbFsMod.setDoc(
+      fbFsMod.doc(fbCustomerDb, 'users', user.uid),
+      profilePayload,
+      { merge: true }
+    );
+  } catch {}
+}
+
+function requireCloudAuth(actionMeta, onAuthenticatedCallback) {
+  if (customerUser && firebaseConnected && fbCustomerDb) {
+    Promise.resolve(onAuthenticatedCallback()).catch(() => {
+      showToast('Saved locally — cloud sync will retry automatically');
+    });
+    return;
+  }
+  pendingCloudAction = actionMeta || { type: 'cloud_save', label: 'Save to Private Cloud Vault' };
+  pendingCloudCallback = onAuthenticatedCallback;
+  openLazyAuthModal(pendingCloudAction);
+}
+window.requireCloudAuth = requireCloudAuth;
+
+function openLazyAuthModal(actionMeta = null) {
+  const modal = document.getElementById('lazyAuthModal');
+  if (!modal) return;
+  const bannerTxt = document.getElementById('lazyAuthPendingText');
+  const errBox = document.getElementById('lazyAuthErrorBox');
+  if (errBox) {
+    errBox.style.display = 'none';
+    errBox.textContent = '';
+  }
+  if (bannerTxt) {
+    bannerTxt.textContent = actionMeta && actionMeta.label
+      ? `Pending Action: "${actionMeta.label}" — will auto-save right after you sign in.`
+      : 'Sign in with Google or Email to unlock your private /users/{uid} Cloud Vault.';
+  }
+  const emailInput = document.getElementById('lazyAuthEmail');
+  if (emailInput && !emailInput.value && state.customer.email && state.customer.email !== 'aarav.sharma@gmail.com') {
+    emailInput.value = state.customer.email;
+  }
+  pushModalState('lazyAuth');
+  modal.classList.add('open');
+}
+
+function closeLazyAuthModal() {
+  const modal = document.getElementById('lazyAuthModal');
+  if (modal && modal.classList.contains('open')) {
+    modal.classList.remove('open');
+    if (history.state && history.state.modal === 'lazyAuth') history.back();
+  }
+}
+
+function setLazyAuthTab(mode) {
+  lazyAuthMode = mode === 'signup' ? 'signup' : 'signin';
+  const tabIn = document.getElementById('authTabSignIn');
+  const tabUp = document.getElementById('authTabSignUp');
+  const nameWrap = document.getElementById('authNameFieldWrap');
+  const submitLbl = document.getElementById('lazyAuthSubmitLabel');
+  if (tabIn) tabIn.classList.toggle('active', lazyAuthMode === 'signin');
+  if (tabUp) tabUp.classList.toggle('active', lazyAuthMode === 'signup');
+  if (nameWrap) nameWrap.style.display = lazyAuthMode === 'signup' ? 'block' : 'none';
+  if (submitLbl) {
+    submitLbl.textContent = lazyAuthMode === 'signup'
+      ? 'Create Account & Auto-Save Now'
+      : 'Sign In & Auto-Save Now';
+  }
+}
+
+function showLazyAuthError(msg) {
+  const errBox = document.getElementById('lazyAuthErrorBox');
+  if (!errBox) {
+    showToast(msg);
+    return;
+  }
+  errBox.textContent = msg;
+  errBox.style.display = 'block';
+}
+
+async function handleGoogleSignIn() {
+  if (!firebaseConnected || !fbCustomerAuth || !fbAuthMod) {
+    showLazyAuthError('Firebase is in Guest Standby Mode. Paste your Firebase Web App config into firebase-config.js to enable live Google Sign-In. Your data is already saved locally on this device!');
+    return;
+  }
+  try {
+    const provider = new fbAuthMod.GoogleAuthProvider();
+    await fbAuthMod.signInWithPopup(fbCustomerAuth, provider);
+  } catch (err) {
+    showLazyAuthError(err?.message || 'Google Sign-In could not complete. Try Email & Password below.');
+  }
+}
+
+async function handleEmailAuthSubmit(e) {
+  e.preventDefault();
+  const email = sanitizeText(document.getElementById('lazyAuthEmail')?.value || '', 120);
+  const password = String(document.getElementById('lazyAuthPassword')?.value || '');
+  const fullName = sanitizeText(document.getElementById('lazyAuthName')?.value || '', 80);
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showLazyAuthError('Enter a valid email address');
+    return;
+  }
+  if (password.length < 6) {
+    showLazyAuthError('Password must be at least 6 characters');
+    return;
+  }
+  if (!firebaseConnected || !fbCustomerAuth || !fbAuthMod) {
+    showLazyAuthError('Firebase is in Guest Standby Mode. Paste your Firebase Web App config into firebase-config.js to enable live Cloud Auth. Your data is safely saved in local storage!');
+    return;
+  }
+
+  try {
+    if (lazyAuthMode === 'signup') {
+      const cred = await fbAuthMod.createUserWithEmailAndPassword(fbCustomerAuth, email, password);
+      if (fullName && cred.user && typeof fbAuthMod.updateProfile === 'function') {
+        await fbAuthMod.updateProfile(cred.user, { displayName: fullName });
+      }
+      if (fullName) state.customer.name = fullName;
+      saveState();
+    } else {
+      await fbAuthMod.signInWithEmailAndPassword(fbCustomerAuth, email, password);
+    }
+  } catch (err) {
+    showLazyAuthError(err?.message || 'Authentication failed. Check your email and password.');
+  }
+}
+
+async function handleCustomerPasswordReset() {
+  const email = sanitizeText(document.getElementById('lazyAuthEmail')?.value || '', 120);
+  if (!email) {
+    showLazyAuthError('Enter your email address above first, then click Forgot Password.');
+    return;
+  }
+  if (!firebaseConnected || !fbCustomerAuth || !fbAuthMod) {
+    showLazyAuthError('Connect firebase-config.js first to send live Firebase password reset emails.');
+    return;
+  }
+  try {
+    await fbAuthMod.sendPasswordResetEmail(fbCustomerAuth, email);
+    showToast(`Password reset link sent to ${email}`);
+  } catch (err) {
+    showLazyAuthError(err?.message || 'Could not send password reset email.');
+  }
+}
+
+async function handleCustomerSignOut() {
+  try {
+    if (fbCustomerAuth && fbAuthMod) {
+      await fbAuthMod.signOut(fbCustomerAuth);
+    }
+  } catch {}
+  customerUser = null;
+  pendingCloudAction = null;
+  pendingCloudCallback = null;
+  // Reset in-memory state back to clean local guest defaults so no user's private cloud data remains visible
+  localStorage.removeItem(STORAGE_KEY);
+  state = buildInitialState();
+  saveState();
+  closeSavedVaultModal();
+  updateFirebaseStatusBanner();
+  render();
+  showToast('Signed out & cleared private session from memory');
+}
+
+/* =========================================================================
+   STRICT PER-UID FIRESTORE READ/WRITE OPERATIONS (/users/{uid}/...)
+   ========================================================================= */
+async function syncUnitToCloud(unit) {
+  if (!customerUser || !fbCustomerDb || !fbFsMod || !unit) return;
+  const uid = customerUser.uid;
+  const docId = sanitizeId(unit.id, 'unit');
+  const payload = {
+    id: docId,
+    ownerUid: uid,
+    type: unit.type === 'stopper' ? 'stopper' : 'controller',
+    model: sanitizeText(unit.model, 120),
+    serial: sanitizeText(unit.serial, 60),
+    location: sanitizeText(unit.location, 120),
+    installDate: sanitizeText(unit.installDate, 20),
+    expiryDate: sanitizeText(unit.expiryDate, 20),
+    invoiceNo: sanitizeText(unit.invoiceNo, 40),
+    basePrice: Math.max(0, Math.min(10000000, Number(unit.basePrice) || 0)),
+    gstRate: Math.max(0, Math.min(100, Number(unit.gstRate) || 18)),
+    updatedAt: new Date().toISOString()
+  };
+  const check = validateClientPayload(payload, 30);
+  if (!check.ok) throw new Error(check.error);
+  await fbFsMod.setDoc(fbFsMod.doc(fbCustomerDb, 'users', uid, 'warranties', docId), payload, { merge: true });
+}
+
+async function syncServiceTicketToCloud(ticket) {
+  if (!customerUser || !fbCustomerDb || !fbFsMod || !ticket) return;
+  const uid = customerUser.uid;
+  const docId = sanitizeId(ticket.id, 'SRV');
+  const payload = {
+    id: docId,
+    ownerUid: uid,
+    unitId: sanitizeText(ticket.unitId, 60),
+    unitName: sanitizeText(ticket.unitName, 120),
+    issue: sanitizeText(ticket.issue, 140),
+    notes: sanitizeText(ticket.notes || '', 600),
+    status: ['Requested', 'Scheduled', 'Resolved'].includes(ticket.status) ? ticket.status : 'Requested',
+    date: sanitizeText(ticket.date, 40),
+    updatedAt: new Date().toISOString()
+  };
+  const check = validateClientPayload(payload, 30);
+  if (!check.ok) throw new Error(check.error);
+  await fbFsMod.setDoc(fbFsMod.doc(fbCustomerDb, 'users', uid, 'serviceRequests', docId), payload, { merge: true });
+}
+
+async function syncInvoiceRecordToCloud(record) {
+  if (!customerUser || !fbCustomerDb || !fbFsMod || !record) return;
+  const uid = customerUser.uid;
+  const docId = sanitizeId(record.id || record.invoiceNo, 'inv');
+  const totals = typeof computeInvoiceTotals === 'function'
+    ? computeInvoiceTotals(record)
+    : { grandTotal: Number(record.grandTotal) || 0 };
+  const payload = {
+    id: docId,
+    ownerUid: uid,
+    invoiceNo: sanitizeText(record.invoiceNo, 40),
+    invoiceDate: sanitizeText(record.invoiceDate, 20),
+    dueDate: sanitizeText(record.dueDate, 20),
+    status: ['Paid', 'Pending', 'Partial', 'Proforma'].includes(record.status) ? record.status : 'Paid',
+    palette: sanitizeText(record.palette || 'violet', 24),
+    frameStyle: record.frameStyle === 'classic' ? 'classic' : 'colorful',
+    businessName: sanitizeText(record.businessName, 120),
+    businessAddress: sanitizeText(record.businessAddress, 240),
+    businessPhone: sanitizeText(record.businessPhone, 40),
+    businessEmail: sanitizeText(record.businessEmail, 120),
+    businessWebsite: sanitizeText(record.businessWebsite, 120),
+    clientName: sanitizeText(record.clientName, 120),
+    clientAddress: sanitizeText(record.clientAddress, 240),
+    clientPhone: sanitizeText(record.clientPhone, 40),
+    clientEmail: sanitizeText(record.clientEmail, 120),
+    paymentMethod: sanitizeText(record.paymentMethod, 80),
+    paymentDetails: sanitizeText(record.paymentDetails, 240),
+    discountPct: Math.max(0, Math.min(100, Number(record.discountPct) || 0)),
+    taxPct: Math.max(0, Math.min(100, Number(record.taxPct) || 0)),
+    grandTotal: Math.max(0, Math.min(100000000, Number(totals.grandTotal) || 0)),
+    terms: sanitizeText(record.terms, 500),
+    approvedBy: sanitizeText(record.approvedBy, 80),
+    items: (Array.isArray(record.items) ? record.items : []).slice(0, 25).map(it => ({
+      id: sanitizeId(it.id, 'item'),
+      desc: sanitizeText(it.desc, 180),
+      qty: Math.max(0, Math.min(100000, Number(it.qty) || 0)),
+      unit: sanitizeText(it.unit, 24),
+      price: Math.max(0, Math.min(10000000, Number(it.price) || 0))
+    })),
+    savedAt: sanitizeText(record.savedAt || formatDate(shiftDays(0)), 40),
+    updatedAt: new Date().toISOString()
+  };
+  const check = validateClientPayload(payload, 30);
+  if (!check.ok) throw new Error(check.error);
+  await fbFsMod.setDoc(fbFsMod.doc(fbCustomerDb, 'users', uid, 'invoices', docId), payload, { merge: true });
+}
+window.syncInvoiceRecordToCloud = syncInvoiceRecordToCloud;
+
+async function syncCalcEntryToCloud(entry) {
+  if (!customerUser || !fbCustomerDb || !fbFsMod || !entry) return;
+  const uid = customerUser.uid;
+  const docId = sanitizeId(entry.id, 'calc');
+  const payload = {
+    id: docId,
+    ownerUid: uid,
+    label: sanitizeText(entry.label || 'Calculation', 140),
+    expr: sanitizeText(entry.expr || '0', 140),
+    result: Number.isFinite(Number(entry.result)) ? Math.max(-1000000000, Math.min(1000000000, Number(entry.result))) : 0,
+    time: sanitizeText(entry.time || 'Today', 40),
+    updatedAt: new Date().toISOString()
+  };
+  const check = validateClientPayload(payload, 30);
+  if (!check.ok) throw new Error(check.error);
+  await fbFsMod.setDoc(fbFsMod.doc(fbCustomerDb, 'users', uid, 'calcEntries', docId), payload, { merge: true });
+}
+
+async function syncNoteToCloud(note) {
+  if (!customerUser || !fbCustomerDb || !fbFsMod || !note) return;
+  const uid = customerUser.uid;
+  const docId = sanitizeId(note.id, 'note');
+  const payload = {
+    id: docId,
+    ownerUid: uid,
+    title: sanitizeText(note.title || 'Untitled Note', 140),
+    tag: sanitizeText(note.tag || 'General', 30),
+    body: sanitizeText(note.body || '', 4000),
+    pinned: Boolean(note.pinned),
+    updatedAt: sanitizeText(note.updatedAt || formatDate(shiftDays(0)), 40)
+  };
+  const check = validateClientPayload(payload, 30);
+  if (!check.ok) throw new Error(check.error);
+  await fbFsMod.setDoc(fbFsMod.doc(fbCustomerDb, 'users', uid, 'notes', docId), payload, { merge: true });
+}
+
+async function deleteCloudRecord(subcollection, docId) {
+  if (!customerUser || !fbCustomerDb || !fbFsMod || !docId) return;
+  const allowedCols = ['warranties', 'serviceRequests', 'invoices', 'calcEntries', 'notes', 'privacyRequests'];
+  if (!allowedCols.includes(subcollection)) return;
+  try {
+    await fbFsMod.deleteDoc(fbFsMod.doc(fbCustomerDb, 'users', customerUser.uid, subcollection, sanitizeId(docId)));
+  } catch {}
+}
+window.deleteCloudRecord = deleteCloudRecord;
+
+async function syncAllLocalToUserVault() {
+  if (!customerUser || !fbCustomerDb || !fbFsMod) return;
+  await ensureUserProfileDoc(customerUser);
+  for (const u of (state.units || []).slice(0, 15)) {
+    await syncUnitToCloud(u);
+  }
+  for (const t of (state.tickets || []).slice(0, 15)) {
+    await syncServiceTicketToCloud(t);
+  }
+  for (const c of (state.tape || []).slice(0, 20)) {
+    await syncCalcEntryToCloud(c);
+  }
+  for (const n of (state.notes || []).slice(0, 25)) {
+    await syncNoteToCloud(n);
+  }
+  if (Array.isArray(state.invoices)) {
+    for (const inv of state.invoices.slice(0, 20)) {
+      await syncInvoiceRecordToCloud(inv);
+    }
+  }
+  state.sync.lastSynced = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  saveState();
+}
+
+async function pullUserVaultFromCloud(silent = false) {
+  if (!customerUser || !fbCustomerDb || !fbFsMod) return;
+  const uid = customerUser.uid;
+  try {
+    const [wSnap, sSnap, iSnap, cSnap, nSnap] = await Promise.all([
+      fbFsMod.getDocs(fbFsMod.collection(fbCustomerDb, 'users', uid, 'warranties')),
+      fbFsMod.getDocs(fbFsMod.collection(fbCustomerDb, 'users', uid, 'serviceRequests')),
+      fbFsMod.getDocs(fbFsMod.collection(fbCustomerDb, 'users', uid, 'invoices')),
+      fbFsMod.getDocs(fbFsMod.collection(fbCustomerDb, 'users', uid, 'calcEntries')),
+      fbFsMod.getDocs(fbFsMod.collection(fbCustomerDb, 'users', uid, 'notes'))
+    ]);
+
+    if (!wSnap.empty) {
+      state.units = wSnap.docs.map(d => d.data());
+      state.selectedUnitId = state.units[0]?.id || 'u1';
+    }
+    if (!sSnap.empty) {
+      state.tickets = sSnap.docs.map(d => d.data());
+    }
+    if (!iSnap.empty) {
+      state.invoices = iSnap.docs.map(d => d.data());
+    }
+    if (!cSnap.empty) {
+      state.tape = cSnap.docs.map(d => d.data());
+    }
+    if (!nSnap.empty) {
+      state.notes = nSnap.docs.map(d => d.data());
+    }
+    state.sync.lastSynced = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    saveState();
+    render();
+    if (!silent) showToast('Loaded your private Cloud Vault data');
+  } catch {
+    if (!silent) showToast('Using local cache — Cloud Vault sync ready');
+  }
+}
+window.pullUserVaultFromCloud = pullUserVaultFromCloud;
+
+function triggerGenerateOfficialWarrantyCard(unitId) {
+  const unit = state.units.find(u => u.id === unitId) || state.units[0];
+  if (!unit) return;
+  requireCloudAuth(
+    {
+      type: 'generate_official_card',
+      label: `Generate Official Warranty Card for ${unit.model}`,
+      payload: unit
+    },
+    async () => {
+      await syncUnitToCloud(unit);
+      openCertificate(unit.id);
+      showToast(`Verified Official Warranty Card synced to your Cloud Vault`);
+    }
+  );
+}
+
+function triggerSaveUnitToCloud(unitId) {
+  const unit = state.units.find(u => u.id === unitId) || state.units[0];
+  if (!unit) return;
+  requireCloudAuth(
+    {
+      type: 'save_unit',
+      label: `Save ${unit.model} (${unit.serial}) to Cloud Vault`,
+      payload: unit
+    },
+    async () => {
+      await syncUnitToCloud(unit);
+      showToast(`Saved ${unit.model} to your Private Cloud Vault`);
+    }
+  );
+}
+
+function triggerSaveAllToCloud() {
+  requireCloudAuth(
+    {
+      type: 'save_all_vault',
+      label: 'Save All Warranties, Invoices, Hisab-Kitab & Notes to Cloud',
+      payload: null
+    },
+    async () => {
+      await syncAllLocalToUserVault();
+      render();
+      showToast('All workspace data saved to your Private Cloud Vault');
+    }
+  );
+}
+
+function openMySavedVault() {
+  if (!customerUser) {
+    requireCloudAuth(
+      {
+        type: 'open_my_vault',
+        label: 'Open My Saved Cloud Vault',
+        payload: null
+      },
+      async () => {
+        await pullUserVaultFromCloud(true);
+        showSavedVaultModalUI();
+      }
+    );
+    return;
+  }
+  showSavedVaultModalUI();
+}
+
+function showSavedVaultModalUI() {
+  const modal = document.getElementById('savedVaultModal');
+  const body = document.getElementById('savedVaultModalBody');
+  if (!modal || !body) return;
+
+  const invCount = Array.isArray(state.invoices) ? state.invoices.length : 1;
+  const uidLabel = customerUser ? customerUser.uid : 'Guest';
+  const emailLabel = customerUser ? customerUser.email : state.customer.email;
+
+  body.innerHTML = `
+    <div style="padding:12px 14px;border-radius:14px;background:var(--emerald-soft);border:1px solid var(--emerald-border);margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:var(--emerald);">Verified Firebase UID Isolation</div>
+      <div style="font-size:14px;font-weight:700;margin-top:3px;">${escapeHtml(emailLabel)}</div>
+      <div class="mono" style="font-size:11px;color:var(--ink-secondary);margin-top:2px;">Path: /users/${escapeHtml(uidLabel)}/...</div>
+    </div>
+
+    <div class="spec-grid" style="margin-bottom:14px;">
+      <div class="spec-tile">
+        <div class="spec-k">Warranties</div>
+        <div class="spec-v">${state.units.length} Shielded</div>
+      </div>
+      <div class="spec-tile">
+        <div class="spec-k">GST Invoices</div>
+        <div class="spec-v">${invCount} Saved</div>
+      </div>
+      <div class="spec-tile">
+        <div class="spec-k">Hisab-Kitab Tape</div>
+        <div class="spec-v">${state.tape.length} Entries</div>
+      </div>
+      <div class="spec-tile">
+        <div class="spec-k">Synced Notes</div>
+        <div class="spec-v">${state.notes.length} Notes</div>
+      </div>
+    </div>
+
+    <div class="dual-actions" style="margin-bottom:10px;">
+      <button class="btn btn-primary btn-sm" onclick="triggerSaveAllToCloud()">
+        ${ICONS.cloud} <span>Save All to Cloud</span>
+      </button>
+      <button class="btn btn-soft btn-sm" onclick="pullUserVaultFromCloud(false)">
+        ${ICONS.refresh} <span>Pull Cloud Vault</span>
+      </button>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--border);">
+      <span style="font-size:11.5px;color:var(--ink-tertiary);">Last synced: ${escapeHtml(state.sync.lastSynced)}</span>
+      <button class="btn btn-danger-outline btn-sm" onclick="handleCustomerSignOut()">Sign Out</button>
+    </div>
+  `;
+
+  pushModalState('savedVault');
+  modal.classList.add('open');
+}
+
+function closeSavedVaultModal() {
+  const modal = document.getElementById('savedVaultModal');
+  if (modal && modal.classList.contains('open')) {
+    modal.classList.remove('open');
+    if (history.state && history.state.modal === 'savedVault') history.back();
+  }
+}
+
+/* =========================================================================
+   UTILITIES & CRASH-PROOF BOOT
    ========================================================================= */
 function escapeHtml(str) {
   return String(str ?? '')
@@ -2246,63 +3297,74 @@ function triggerDownload(filename, content, mime) {
 }
 
 function render() {
-  const main = document.getElementById('appMain');
-  if (!main) return;
-  const cfg = getRemoteConfig();
+  try {
+    const main = document.getElementById('appMain');
+    if (!main) return;
+    const cfg = getRemoteConfig();
 
-  if (cfg && cfg.maintenanceMode) {
-    main.innerHTML = `
-      <div class="page-view">
-        <div class="card" style="max-width:560px;margin:28px auto;text-align:center;padding:34px 24px;">
-          <div class="eyebrow" style="color:var(--primary);margin-bottom:8px;">Scheduled System Upgrade</div>
-          <h1 class="serif" style="font-size:34px;margin:0 0 10px;line-height:1.08;">AquaVault Calibration in Progress</h1>
-          <p style="font-size:14px;color:var(--ink-secondary);margin:0;">${escapeHtml(cfg.maintenanceMessage || 'We are upgrading AquaVault services. Please check back shortly.')}</p>
+    if (cfg && cfg.maintenanceMode) {
+      main.innerHTML = `
+        <div class="page-view">
+          <div class="card" style="max-width:560px;margin:28px auto;text-align:center;padding:34px 24px;">
+            <div class="eyebrow" style="color:var(--primary);margin-bottom:8px;">Scheduled System Upgrade</div>
+            <h1 class="serif" style="font-size:34px;margin:0 0 10px;line-height:1.08;">AquaVault Calibration in Progress</h1>
+            <p style="font-size:14px;color:var(--ink-secondary);margin:0;">${escapeHtml(cfg.maintenanceMessage || 'We are upgrading AquaVault services. Please check back shortly.')}</p>
+          </div>
         </div>
-      </div>
-    `;
-    return;
-  }
+      `;
+      return;
+    }
 
-  const bannerHtml = (cfg && cfg.announcementActive && cfg.announcementText)
-    ? `<div class="card" style="margin-bottom:14px;padding:12px 16px;background:var(--primary-soft);border-color:var(--border-strong);display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--ink);"><span style="color:var(--primary);flex-shrink:0;">${ICONS.bolt}</span><span>${escapeHtml(cfg.announcementText)}</span></div>`
-    : '';
+    const bannerHtml = (cfg && cfg.announcementActive && cfg.announcementText)
+      ? `<div class="card" style="margin-bottom:14px;padding:12px 16px;background:var(--primary-soft);border-color:var(--border-strong);display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--ink);"><span style="color:var(--primary);flex-shrink:0;">${ICONS.bolt}</span><span>${escapeHtml(cfg.announcementText)}</span></div>`
+      : '';
 
-  if (!isFeatureEnabled(CURRENT_PAGE)) {
-    main.innerHTML = `${bannerHtml}<div class="page-view"><div class="card" style="text-align:center;padding:32px 20px;"><h2 class="serif" style="font-size:28px;margin:0 0 8px;">Section Temporarily Unavailable</h2><p style="font-size:13.5px;color:var(--ink-secondary);margin:0 0 16px;">This module is currently paused. Return to Home to manage your AquaVault devices.</p><a href="index.html" class="btn btn-primary btn-sm">Back to Home</a></div></div>`;
-    return;
-  }
+    if (!isFeatureEnabled(CURRENT_PAGE)) {
+      main.innerHTML = `${bannerHtml}<div class="page-view"><div class="card" style="text-align:center;padding:32px 20px;"><h2 class="serif" style="font-size:28px;margin:0 0 8px;">Section Temporarily Unavailable</h2><p style="font-size:13.5px;color:var(--ink-secondary);margin:0 0 16px;">This module is currently paused. Return to Home to manage your AquaVault devices.</p><a href="index.html" class="btn btn-primary btn-sm">Back to Home</a></div></div>`;
+      return;
+    }
 
-  switch (CURRENT_PAGE) {
-    case 'warranty':
-      main.innerHTML = bannerHtml + renderWarranty();
-      bindChartInteraction();
-      break;
-    case 'devices':
-      main.innerHTML = bannerHtml + renderDevices();
-      break;
-    case 'calculator':
-      main.innerHTML = bannerHtml + renderCalculator();
-      break;
-    case 'invoice':
-      main.innerHTML = bannerHtml + (typeof renderInvoicePage === 'function' ? renderInvoicePage() : renderHome());
-      break;
-    case 'notes':
-      main.innerHTML = bannerHtml + renderNotes();
-      break;
-    case 'hub':
-      main.innerHTML = bannerHtml + renderHub();
-      break;
-    case 'privacy':
-      main.innerHTML = bannerHtml + renderPrivacy();
-      break;
-    case 'home':
-    default:
-      main.innerHTML = bannerHtml + renderHome();
-      break;
+    switch (CURRENT_PAGE) {
+      case 'warranty':
+        main.innerHTML = bannerHtml + renderWarranty();
+        bindChartInteraction();
+        break;
+      case 'devices':
+        main.innerHTML = bannerHtml + renderDevices();
+        break;
+      case 'calculator':
+        main.innerHTML = bannerHtml + renderCalculator();
+        break;
+      case 'invoice':
+        main.innerHTML = bannerHtml + (typeof renderInvoicePage === 'function' ? renderInvoicePage() : renderHome());
+        break;
+      case 'notes':
+        main.innerHTML = bannerHtml + renderNotes();
+        break;
+      case 'hub':
+        main.innerHTML = bannerHtml + renderHub();
+        break;
+      case 'privacy':
+        main.innerHTML = bannerHtml + renderPrivacy();
+        break;
+      case 'home':
+      default:
+        main.innerHTML = bannerHtml + renderHome();
+        break;
+    }
+  } catch (err) {
+    console.error('[AquaVault Render Recovery]', err);
   }
 }
 
-mountShell();
-applyTheme();
-render();
-initPWA();
+try {
+  mountShell();
+  applyTheme();
+  render();
+  updateFirebaseStatusBanner();
+  initPWA();
+  initCustomerFirebase();
+} catch (bootErr) {
+  console.error('[AquaVault Boot Recovery]', bootErr);
+}
+

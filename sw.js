@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aquavault-pwa-v8';
+const CACHE_NAME = 'aquavault-cache-v7';
 const PRECACHE_ASSETS = [
   './',
   './index.html',
@@ -9,9 +9,10 @@ const PRECACHE_ASSETS = [
   './notes.html',
   './hub.html',
   './privacy.html',
-  './styles.css?v=6',
-  './app.js?v=6',
-  './invoice-engine.js?v=6',
+  './styles.css?v=7',
+  './app.js?v=7',
+  './invoice-engine.js?v=7',
+  './firebase-config.js',
   './manifest.webmanifest',
   './assets/app-icon.jpg',
   './assets/icon-192.png',
@@ -22,18 +23,19 @@ const PRECACHE_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_ASSETS))
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRECACHE_ASSETS))
+      .catch(() => {})
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {

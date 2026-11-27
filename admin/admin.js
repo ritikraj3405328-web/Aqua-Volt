@@ -1,40 +1,20 @@
 /* =========================================================================
-   AQUAVAULT ADMIN COMMAND CENTER — SERVER-SIDE FIREBASE AUTH & FIRESTORE
-   - Zero localStorage admin credentials, zero signup/claim UI, zero Apps Script OTP
+   AQUAVAULT ADMIN COMMAND CENTER — CRASH-PROOF & SERVER-SIDE FIREBASE AUTH
+   - Zero blank screens: Renders UI synchronously before any network/SDK call
+   - All Firebase initialization wrapped in defensive try/catch blocks
+   - Non-blocking status banner when firebase-config.js is not configured yet
    - Firebase Authentication (signInWithEmailAndPassword + sendPasswordResetEmail)
    - Single-Digit Anti-Bot Math Quiz (rollMathQuiz) before Firebase login
-   - Central firebaseConfig loaded from ../firebase-config.js
-   - Server-side Firestore Security Rules verification & live cloud sync
+   - Automatic 30-Minute Inactivity Session Logout (1,800,000 ms watchdog)
+   - Clear non-admin email rejection & server-side Firestore Rules verification
    ========================================================================= */
 
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  sendPasswordResetEmail,
-  signOut,
-  onAuthStateChanged,
-  updatePassword
-} from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  collection,
-  getDocs,
-  addDoc,
-  query,
-  orderBy,
-  limit,
-  serverTimestamp
-} from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 import { firebaseConfig, firestoreDatabaseId } from '../firebase-config.js';
 
 const ADMIN_CONFIG_KEY = 'aquavault_admin_config_v1';
 const CUSTOMER_STATE_KEY = 'aquavault_luxury_state_v2';
 const ADMIN_THEME_KEY = 'aquavault_admin_theme_v1';
+const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes automatic logout
 
 const ICONS = {
   shield: `<svg class="icon" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.8-3.2 8.9-7.5 10.5-4.3-1.6-7.5-5.7-7.5-10.5V6L12 3z"/><path d="M9 12l2 2 4-4"/></svg>`,
@@ -71,50 +51,112 @@ const ADMIN_TABS = [
 ];
 
 /* =========================================================================
-   IN-MEMORY RUNTIME STATE & FIREBASE INITIALIZATION
+   IN-MEMORY RUNTIME STATE & CRASH-PROOF FIREBASE INITIALIZATION
    ========================================================================= */
 const session = {
   authenticated: false,
-  checkingAuth: true,
-  user: null,          // Live Firebase Auth user object (in-memory only)
-  authView: 'login',   // 'login' | 'forgot'
+  checkingAuth: false,
+  firebaseReady: false,
+  firebaseInitError: '',
+  user: null,
+  authView: 'login', // 'login' | 'forgot'
   authBusy: false,
   authError: '',
   authNotice: '',
   activeTab: 'dashboard',
   mathQuiz: { a: 3, b: 4, op: '+', answer: 7 },
   ticketFilter: 'All',
-  auditLogs: [],       // Loaded from Firestore /adminAuditLogs
+  auditLogs: [],
   cloudSyncedAt: null,
+  lastActivityAt: Date.now(),
+  inactivityInterval: null,
   toastTimer: null
 };
-
-function isFirebaseConfigured() {
-  return Boolean(
-    firebaseConfig &&
-    firebaseConfig.apiKey &&
-    firebaseConfig.projectId &&
-    !String(firebaseConfig.apiKey).startsWith('YOUR_') &&
-    !String(firebaseConfig.projectId).startsWith('YOUR_')
-  );
-}
 
 let fbApp = null;
 let auth = null;
 let db = null;
+let fbSdk = null;
 
-if (isFirebaseConfigured()) {
+function isFirebaseConfigured() {
   try {
-    fbApp = initializeApp(firebaseConfig);
-    auth = getAuth(fbApp);
-    db = firestoreDatabaseId && firestoreDatabaseId !== '(default)'
-      ? getFirestore(fbApp, firestoreDatabaseId)
-      : getFirestore(fbApp);
-  } catch (err) {
-    console.error('Firebase init failed:', err);
+    return Boolean(
+      firebaseConfig &&
+      typeof firebaseConfig === 'object' &&
+      firebaseConfig.apiKey &&
+      firebaseConfig.projectId &&
+      !String(firebaseConfig.apiKey).startsWith('YOUR_') &&
+      !String(firebaseConfig.projectId).startsWith('YOUR_')
+    );
+  } catch {
+    return false;
   }
 }
 
+async function initFirebaseSafely() {
+  if (!isFirebaseConfigured()) {
+    session.firebaseReady = false;
+    session.checkingAuth = false;
+    render();
+    return false;
+  }
+  if (fbSdk && auth && db) return true;
+
+  try {
+    const [appMod, authMod, fsMod] = await Promise.all([
+      import('https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js'),
+      import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js')
+    ]);
+    fbSdk = { ...appMod, ...authMod, ...fsMod };
+    fbApp = fbSdk.initializeApp(firebaseConfig);
+    auth = fbSdk.getAuth(fbApp);
+    db = firestoreDatabaseId && firestoreDatabaseId !== '(default)'
+      ? fbSdk.getFirestore(fbApp, firestoreDatabaseId)
+      : fbSdk.getFirestore(fbApp);
+    session.firebaseReady = true;
+    session.firebaseInitError = '';
+
+    fbSdk.onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        session.authenticated = false;
+        session.user = null;
+        session.checkingAuth = false;
+        render();
+        return;
+      }
+
+      session.checkingAuth = true;
+      render();
+      const allowed = await verifyAndLoadAdminSession(user);
+      if (!allowed) {
+        try { await fbSdk.signOut(auth); } catch {}
+        session.authenticated = false;
+        session.user = null;
+        session.authError = `Access Denied: The account "${sanitizeText(user.email || 'unknown', 120)}" is not authorized as an AquaVault Admin. Only the designated admin email in firestore.rules can access this console.`;
+      } else {
+        session.authenticated = true;
+        session.user = user;
+        session.lastActivityAt = Date.now();
+        session.authError = '';
+      }
+      session.checkingAuth = false;
+      render();
+    });
+    return true;
+  } catch (err) {
+    console.warn('Firebase initialization skipped or failed safely:', err);
+    session.firebaseReady = false;
+    session.checkingAuth = false;
+    session.firebaseInitError = err?.message || 'Firebase SDK unavailable';
+    render();
+    return false;
+  }
+}
+
+/* =========================================================================
+   XSS & INPUT SANITIZATION HELPERS
+   ========================================================================= */
 function esc(val) {
   return String(val ?? '')
     .replace(/&/g, '&amp;')
@@ -122,6 +164,20 @@ function esc(val) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function sanitizeText(val, maxLen = 250) {
+  return String(val ?? '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/<\s*\/?\s*script\b[^>]*>/gi, '')
+    .replace(/javascript\s*:/gi, '')
+    .replace(/data\s*:\s*text\/html/gi, '')
+    .trim()
+    .slice(0, maxLen);
+}
+
+function sanitizeId(id) {
+  return String(id ?? '').replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 80);
 }
 
 function ic(name) {
@@ -138,6 +194,53 @@ function isValidHttpsUrl(url) {
 }
 
 /* =========================================================================
+   30-MINUTE AUTOMATIC INACTIVITY LOGOUT WATCHDOG
+   ========================================================================= */
+function recordAdminActivity() {
+  session.lastActivityAt = Date.now();
+}
+
+function getRemainingSessionMinutes() {
+  const elapsed = Date.now() - session.lastActivityAt;
+  const remMs = Math.max(0, INACTIVITY_TIMEOUT_MS - elapsed);
+  return Math.max(1, Math.ceil(remMs / 60000));
+}
+
+function startInactivityWatchdog() {
+  const events = ['mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+  events.forEach((evt) => {
+    window.addEventListener(evt, recordAdminActivity, { passive: true });
+  });
+
+  if (session.inactivityInterval) clearInterval(session.inactivityInterval);
+  session.inactivityInterval = setInterval(async () => {
+    if (!session.authenticated) return;
+    const idleMs = Date.now() - session.lastActivityAt;
+    const badgeEl = document.getElementById('idleTimerBadge');
+    if (badgeEl) {
+      badgeEl.textContent = `Auto-Logout: ${getRemainingSessionMinutes()}m`;
+    }
+    if (idleMs >= INACTIVITY_TIMEOUT_MS) {
+      await handleInactivityTimeout();
+    }
+  }, 15000);
+}
+
+async function handleInactivityTimeout() {
+  if (auth && fbSdk) {
+    try { await fbSdk.signOut(auth); } catch {}
+  }
+  session.authenticated = false;
+  session.user = null;
+  session.authView = 'login';
+  session.authNotice = '';
+  session.authError = 'Session timed out after 30 minutes of inactivity for your security. Please sign in again.';
+  rollMathQuiz();
+  render();
+  showToast('Logged out automatically after 30 minutes of inactivity');
+}
+
+/* =========================================================================
    SINGLE-DIGIT MATH QUIZ GENERATOR (FRESH RANDOM ON EVERY REFRESH)
    ========================================================================= */
 function rollMathQuiz() {
@@ -148,8 +251,8 @@ function rollMathQuiz() {
   for (let attempt = 0; attempt < 12; attempt++) {
     crypto.getRandomValues(arr);
     const useSub = (arr[0] % 3) === 2;
-    let a = 1 + (arr[1] % 9); // 1..9 single digit
-    let b = 1 + (arr[2] % 9); // 1..9 single digit
+    let a = 1 + (arr[1] % 9);
+    let b = 1 + (arr[2] % 9);
     if (useSub) {
       if (b > a) { const tmp = a; a = b; b = tmp; }
       next = { a, b, op: '-', answer: a - b };
@@ -162,7 +265,7 @@ function rollMathQuiz() {
       break;
     }
   }
-  session.mathQuiz = next;
+  session.mathQuiz = next || { a: 4, b: 3, op: '+', answer: 7 };
   return session.mathQuiz;
 }
 
@@ -237,7 +340,7 @@ function loadAdminConfig() {
 
 function saveAdminConfig(cfg) {
   cfg.updatedAt = new Date().toISOString();
-  localStorage.setItem(ADMIN_CONFIG_KEY, JSON.stringify(cfg));
+  try { localStorage.setItem(ADMIN_CONFIG_KEY, JSON.stringify(cfg)); } catch {}
   syncCloudConfig(cfg);
 }
 
@@ -248,11 +351,7 @@ function shiftDaysIso(delta) {
 }
 
 function loadCustomerState() {
-  try {
-    const raw = localStorage.getItem(CUSTOMER_STATE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return {
+  const fallback = {
     theme: 'light',
     customer: {
       name: 'Valued Customer',
@@ -275,10 +374,28 @@ function loadCustomerState() {
     notes: [],
     invoices: []
   };
+  try {
+    const raw = localStorage.getItem(CUSTOMER_STATE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return {
+      ...fallback,
+      ...parsed,
+      customer: { ...fallback.customer, ...(parsed.customer || {}) },
+      sync: { ...fallback.sync, ...(parsed.sync || {}) },
+      dpdp: { ...fallback.dpdp, ...(parsed.dpdp || {}) },
+      units: Array.isArray(parsed.units) ? parsed.units : fallback.units,
+      tickets: Array.isArray(parsed.tickets) ? parsed.tickets : fallback.tickets,
+      notes: Array.isArray(parsed.notes) ? parsed.notes : fallback.notes,
+      invoices: Array.isArray(parsed.invoices) ? parsed.invoices : fallback.invoices
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 function saveCustomerState(cs) {
-  localStorage.setItem(CUSTOMER_STATE_KEY, JSON.stringify(cs));
+  try { localStorage.setItem(CUSTOMER_STATE_KEY, JSON.stringify(cs)); } catch {}
 }
 
 function getDaysRemaining(expiryIso) {
@@ -304,7 +421,7 @@ function getTheme() {
 function toggleAdminTheme() {
   const next = getTheme() === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem(ADMIN_THEME_KEY, next);
+  try { localStorage.setItem(ADMIN_THEME_KEY, next); } catch {}
   const meta = document.getElementById('admin-meta-theme');
   if (meta) meta.setAttribute('content', next === 'dark' ? '#06060A' : '#FFFFFF');
   render();
@@ -318,7 +435,7 @@ function showToast(msg) {
     el.className = 'toast';
     document.body.appendChild(el);
   }
-  el.textContent = msg;
+  el.textContent = String(msg ?? '');
   el.classList.add('show');
   clearTimeout(session.toastTimer);
   session.toastTimer = setTimeout(() => el.classList.remove('show'), 3400);
@@ -328,25 +445,26 @@ function showToast(msg) {
    FIRESTORE SERVER-SIDE ADMIN VERIFICATION & LIVE SYNC
    ========================================================================= */
 async function appendCloudAudit(eventType, summary, severity = 'INFO') {
+  const cleanSummary = sanitizeText(summary, 480);
   const entry = {
     id: 'AUD-' + Date.now().toString(36).toUpperCase(),
     eventType,
-    summary,
+    summary: cleanSummary,
     severity,
     time: new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })
   };
   session.auditLogs.unshift(entry);
   session.auditLogs = session.auditLogs.slice(0, 60);
 
-  if (!db || !session.user || !session.authenticated) return;
+  if (!db || !fbSdk || !session.user || !session.authenticated) return;
   try {
-    await addDoc(collection(db, 'adminAuditLogs'), {
+    await fbSdk.addDoc(fbSdk.collection(db, 'adminAuditLogs'), {
       actorUid: session.user.uid,
       actorEmail: session.user.email || '',
       eventType,
-      summary: String(summary).slice(0, 480),
+      summary: cleanSummary,
       severity,
-      createdAt: serverTimestamp()
+      createdAt: fbSdk.serverTimestamp()
     });
   } catch (err) {
     console.warn('Audit log write skipped:', err?.message || err);
@@ -354,10 +472,10 @@ async function appendCloudAudit(eventType, summary, severity = 'INFO') {
 }
 
 async function syncCloudConfig(cfg) {
-  if (!db || !session.user || !session.authenticated) return;
+  if (!db || !fbSdk || !session.user || !session.authenticated) return;
   try {
-    const configRef = doc(db, 'appConfig', 'global');
-    const existing = await getDoc(configRef);
+    const configRef = fbSdk.doc(db, 'appConfig', 'global');
+    const existing = await fbSdk.getDoc(configRef);
     const payload = {
       featureWarranty: Boolean(cfg.features.warranty),
       featureDevices: Boolean(cfg.features.devices),
@@ -368,41 +486,41 @@ async function syncCloudConfig(cfg) {
       featurePrivacy: Boolean(cfg.features.privacy),
       featurePwaPopup: Boolean(cfg.features.pwaPopup),
       maintenanceMode: Boolean(cfg.maintenanceMode),
-      maintenanceMessage: String(cfg.maintenanceMessage || '').slice(0, 300),
+      maintenanceMessage: sanitizeText(cfg.maintenanceMessage || '', 300),
       announcementActive: Boolean(cfg.announcementActive),
-      announcementText: String(cfg.announcementText || '').slice(0, 300),
-      defaultGstPercent: Number(cfg.invoiceDefaults.gstPercent || 18),
+      announcementText: sanitizeText(cfg.announcementText || '', 300),
+      defaultGstPercent: Math.max(0, Math.min(50, Number(cfg.invoiceDefaults.gstPercent || 18))),
       defaultInvoicePalette: String(cfg.invoiceDefaults.palette || 'violet'),
       defaultTheme: cfg.defaultTheme === 'dark' ? 'dark' : 'light',
       updatedByUid: session.user.uid,
-      updatedAt: serverTimestamp()
+      updatedAt: fbSdk.serverTimestamp()
     };
 
     if (existing.exists()) {
-      await setDoc(configRef, payload, { merge: true });
+      await fbSdk.setDoc(configRef, payload, { merge: true });
     } else {
-      await setDoc(configRef, { ...payload, createdAt: serverTimestamp() });
+      await fbSdk.setDoc(configRef, { ...payload, createdAt: fbSdk.serverTimestamp() });
     }
 
     for (let i = 0; i < cfg.hubApps.length; i++) {
       const app = cfg.hubApps[i];
       if (!isValidHttpsUrl(app.url)) continue;
-      const appRef = doc(db, 'hubApps', app.id);
-      const appSnap = await getDoc(appRef);
+      const appRef = fbSdk.doc(db, 'hubApps', sanitizeId(app.id));
+      const appSnap = await fbSdk.getDoc(appRef);
       const appPayload = {
-        name: String(app.name).slice(0, 100),
+        name: sanitizeText(app.name, 100),
         category: ['Website', 'New App', 'Tool'].includes(app.category) ? app.category : 'Website',
-        desc: String(app.desc).slice(0, 300),
-        url: String(app.url).slice(0, 500),
-        icon: String(app.icon || 'globe').slice(0, 40),
+        desc: sanitizeText(app.desc, 300),
+        url: String(app.url).trim().slice(0, 500),
+        icon: sanitizeText(app.icon || 'globe', 40),
         enabled: app.enabled !== false,
         sortOrder: i,
-        updatedAt: serverTimestamp()
+        updatedAt: fbSdk.serverTimestamp()
       };
       if (appSnap.exists()) {
-        await setDoc(appRef, appPayload, { merge: true });
+        await fbSdk.setDoc(appRef, appPayload, { merge: true });
       } else {
-        await setDoc(appRef, { ...appPayload, createdAt: serverTimestamp() });
+        await fbSdk.setDoc(appRef, { ...appPayload, createdAt: fbSdk.serverTimestamp() });
       }
     }
 
@@ -413,25 +531,24 @@ async function syncCloudConfig(cfg) {
 }
 
 async function verifyAndLoadAdminSession(user) {
-  if (!db || !user) return false;
+  if (!db || !fbSdk || !user) return false;
   try {
-    // Server-side authorization probe: Firestore Security Rules allow ONLY the authorized admin email
-    const adminRef = doc(db, 'admins', user.uid);
-    const adminSnap = await getDoc(adminRef);
+    const adminRef = fbSdk.doc(db, 'admins', user.uid);
+    const adminSnap = await fbSdk.getDoc(adminRef);
 
     if (!adminSnap.exists()) {
-      await setDoc(adminRef, {
+      await fbSdk.setDoc(adminRef, {
         uid: user.uid,
         email: user.email || '',
         role: 'SUPER_ADMIN',
         active: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        createdAt: fbSdk.serverTimestamp(),
+        updatedAt: fbSdk.serverTimestamp()
       });
     }
 
-    const cfgRef = doc(db, 'appConfig', 'global');
-    const cfgSnap = await getDoc(cfgRef);
+    const cfgRef = fbSdk.doc(db, 'appConfig', 'global');
+    const cfgSnap = await fbSdk.getDoc(cfgRef);
     const localCfg = loadAdminConfig();
 
     if (cfgSnap.exists()) {
@@ -460,7 +577,7 @@ async function verifyAndLoadAdminSession(user) {
         }
       };
 
-      const hubSnap = await getDocs(collection(db, 'hubApps'));
+      const hubSnap = await fbSdk.getDocs(fbSdk.collection(db, 'hubApps'));
       if (!hubSnap.empty) {
         const cloudHub = [];
         hubSnap.forEach(s => cloudHub.push({ id: s.id, ...s.data() }));
@@ -468,17 +585,16 @@ async function verifyAndLoadAdminSession(user) {
         merged.hubApps = cloudHub;
       }
 
-      localStorage.setItem(ADMIN_CONFIG_KEY, JSON.stringify(merged));
+      try { localStorage.setItem(ADMIN_CONFIG_KEY, JSON.stringify(merged)); } catch {}
     } else {
       session.authenticated = true;
       session.user = user;
       await syncCloudConfig(localCfg);
     }
 
-    // Load recent server audit logs
     try {
-      const logQ = query(collection(db, 'adminAuditLogs'), orderBy('createdAt', 'desc'), limit(25));
-      const logSnap = await getDocs(logQ);
+      const logQ = fbSdk.query(fbSdk.collection(db, 'adminAuditLogs'), fbSdk.orderBy('createdAt', 'desc'), fbSdk.limit(25));
+      const logSnap = await fbSdk.getDocs(logQ);
       const logs = [];
       logSnap.forEach(s => {
         const d = s.data();
@@ -499,7 +615,7 @@ async function verifyAndLoadAdminSession(user) {
     session.cloudSyncedAt = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
     return true;
   } catch (err) {
-    console.error('Admin verification failed:', err);
+    console.error('Admin verification rejected by Firestore Security Rules:', err);
     return false;
   }
 }
@@ -512,7 +628,7 @@ async function handleAdminLoginSubmit(e) {
   session.authError = '';
   session.authNotice = '';
 
-  const email = (document.getElementById('loginEmail')?.value || '').trim();
+  const email = sanitizeText(document.getElementById('loginEmail')?.value || '', 200);
   const password = document.getElementById('loginPassword')?.value || '';
   const mathAns = (document.getElementById('mathQuizAnswer')?.value || '').trim();
 
@@ -523,8 +639,8 @@ async function handleAdminLoginSubmit(e) {
     return;
   }
 
-  if (!isFirebaseConfigured() || !auth) {
-    session.authError = 'Firebase is not configured yet. Paste your Firebase Web App config in firebase-config.js.';
+  if (!isFirebaseConfigured()) {
+    session.authError = 'Firebase is not connected yet. Paste your Firebase Web App config into firebase-config.js.';
     render();
     return;
   }
@@ -538,15 +654,23 @@ async function handleAdminLoginSubmit(e) {
   session.authBusy = true;
   render();
 
+  const ready = await initFirebaseSafely();
+  if (!ready || !auth || !fbSdk) {
+    session.authBusy = false;
+    session.authError = 'Could not initialize Firebase Authentication. Check firebase-config.js and network connectivity.';
+    render();
+    return;
+  }
+
   try {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
+    const cred = await fbSdk.signInWithEmailAndPassword(auth, email, password);
     const allowed = await verifyAndLoadAdminSession(cred.user);
     if (!allowed) {
-      await signOut(auth);
+      await fbSdk.signOut(auth);
       rollMathQuiz();
       session.authenticated = false;
       session.user = null;
-      session.authError = 'Access Denied by Firestore Security Rules: This account is not the authorized AquaVault Admin.';
+      session.authError = `Unauthorized Account: "${email}" is not the designated AquaVault Admin in firestore.rules. Non-admin access is strictly blocked.`;
       session.authBusy = false;
       render();
       return;
@@ -554,6 +678,7 @@ async function handleAdminLoginSubmit(e) {
 
     session.authenticated = true;
     session.user = cred.user;
+    session.lastActivityAt = Date.now();
     session.authBusy = false;
     await appendCloudAudit('LOGIN_VERIFIED', `Firebase Admin signed in (${cred.user.email})`, 'INFO');
     render();
@@ -594,7 +719,7 @@ async function handleForgotPasswordSubmit(e) {
   session.authError = '';
   session.authNotice = '';
 
-  const email = (document.getElementById('resetEmail')?.value || '').trim();
+  const email = sanitizeText(document.getElementById('resetEmail')?.value || '', 200);
   const mathAns = (document.getElementById('mathQuizAnswer')?.value || '').trim();
 
   if (mathAns === '' || Number(mathAns) !== session.mathQuiz.answer) {
@@ -604,8 +729,8 @@ async function handleForgotPasswordSubmit(e) {
     return;
   }
 
-  if (!isFirebaseConfigured() || !auth) {
-    session.authError = 'Firebase is not configured yet. Paste your Firebase Web App config in firebase-config.js.';
+  if (!isFirebaseConfigured()) {
+    session.authError = 'Firebase is not connected yet. Paste your Firebase Web App config in firebase-config.js.';
     render();
     return;
   }
@@ -619,8 +744,16 @@ async function handleForgotPasswordSubmit(e) {
   session.authBusy = true;
   render();
 
+  const ready = await initFirebaseSafely();
+  if (!ready || !auth || !fbSdk) {
+    session.authBusy = false;
+    session.authError = 'Could not initialize Firebase Authentication.';
+    render();
+    return;
+  }
+
   try {
-    await sendPasswordResetEmail(auth, email);
+    await fbSdk.sendPasswordResetEmail(auth, email);
     session.authBusy = false;
     session.authNotice = `Firebase password reset email sent to ${email}. Check your inbox and spam folder.`;
     rollMathQuiz();
@@ -635,8 +768,8 @@ async function handleForgotPasswordSubmit(e) {
 }
 
 async function handleAdminSignOut() {
-  if (auth) {
-    try { await signOut(auth); } catch {}
+  if (auth && fbSdk) {
+    try { await fbSdk.signOut(auth); } catch {}
   }
   session.authenticated = false;
   session.user = null;
@@ -649,9 +782,9 @@ async function handleAdminSignOut() {
 }
 
 async function handleSendResetFromSecurityPanel() {
-  if (!auth || !session.user?.email) return showToast('Not connected to Firebase Auth');
+  if (!auth || !fbSdk || !session.user?.email) return showToast('Not connected to Firebase Auth');
   try {
-    await sendPasswordResetEmail(auth, session.user.email);
+    await fbSdk.sendPasswordResetEmail(auth, session.user.email);
     await appendCloudAudit('PASSWORD_RESET', `Password reset email dispatched to ${session.user.email}`, 'INFO');
     render();
     showToast(`Firebase password reset email sent to ${session.user.email}`);
@@ -662,13 +795,13 @@ async function handleSendResetFromSecurityPanel() {
 
 async function handleChangeFirebasePassword(e) {
   e.preventDefault();
-  if (!auth || !session.user) return showToast('Sign in to Firebase first');
+  if (!auth || !fbSdk || !session.user) return showToast('Sign in to Firebase first');
   const nextPass = document.getElementById('secNewFbPass')?.value || '';
   const confirmPass = document.getElementById('secConfirmFbPass')?.value || '';
   if (nextPass.length < 8) return showToast('New password must be at least 8 characters');
   if (nextPass !== confirmPass) return showToast('Passwords do not match');
   try {
-    await updatePassword(session.user, nextPass);
+    await fbSdk.updatePassword(session.user, nextPass);
     await appendCloudAudit('PASSWORD_RESET', 'Admin password updated via Firebase Auth', 'WARNING');
     render();
     showToast('Firebase Admin password updated successfully');
@@ -694,6 +827,7 @@ async function handleManualCloudSync() {
    ========================================================================= */
 function setTab(tabId) {
   session.activeTab = tabId;
+  recordAdminActivity();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -728,8 +862,8 @@ function toggleAnnouncementActive() {
 function saveBroadcastAndBranding(e) {
   e.preventDefault();
   const cfg = loadAdminConfig();
-  cfg.announcementText = (document.getElementById('cfgAnnouncementText')?.value || '').trim().slice(0, 300);
-  cfg.maintenanceMessage = (document.getElementById('cfgMaintenanceMsg')?.value || '').trim().slice(0, 300);
+  cfg.announcementText = sanitizeText(document.getElementById('cfgAnnouncementText')?.value || '', 300);
+  cfg.maintenanceMessage = sanitizeText(document.getElementById('cfgMaintenanceMsg')?.value || '', 300);
   cfg.defaultTheme = document.getElementById('cfgDefaultTheme')?.value === 'dark' ? 'dark' : 'light';
   saveAdminConfig(cfg);
   appendCloudAudit('CONFIG_UPDATED', 'Updated broadcast banner, maintenance message & default theme', 'INFO');
@@ -766,12 +900,12 @@ function deleteUnit(unitId) {
 
 function addHardwareUnit(e) {
   e.preventDefault();
-  const model = (document.getElementById('newUnitModel')?.value || '').trim();
+  const model = sanitizeText(document.getElementById('newUnitModel')?.value || '', 120);
   const type = document.getElementById('newUnitType')?.value === 'stopper' ? 'stopper' : 'controller';
-  const serial = (document.getElementById('newUnitSerial')?.value || '').trim().toUpperCase();
-  const location = (document.getElementById('newUnitLocation')?.value || '').trim();
+  const serial = sanitizeText(document.getElementById('newUnitSerial')?.value || '', 80).toUpperCase();
+  const location = sanitizeText(document.getElementById('newUnitLocation')?.value || '', 80);
   const days = Math.max(30, Math.min(3650, Number(document.getElementById('newUnitDays')?.value || 365)));
-  const price = Math.max(0, Number(document.getElementById('newUnitPrice')?.value || 6500));
+  const price = Math.max(0, Math.min(10000000, Number(document.getElementById('newUnitPrice')?.value || 6500)));
   if (!model || !serial || !location) return showToast('Fill Model, Serial Number, and Location');
 
   const cs = loadCustomerState();
@@ -826,15 +960,15 @@ function saveInvoiceDefaults(e) {
   e.preventDefault();
   const cfg = loadAdminConfig();
   cfg.invoiceDefaults = {
-    businessName: (document.getElementById('invDefBizName')?.value || '').trim() || 'AquaVault Smart Systems Pvt. Ltd.',
-    businessAddress: (document.getElementById('invDefBizAddr')?.value || '').trim(),
-    businessPhone: (document.getElementById('invDefBizPhone')?.value || '').trim(),
-    businessEmail: (document.getElementById('invDefBizEmail')?.value || '').trim(),
-    paymentDetails: (document.getElementById('invDefPay')?.value || '').trim(),
+    businessName: sanitizeText(document.getElementById('invDefBizName')?.value || '', 120) || 'AquaVault Smart Systems Pvt. Ltd.',
+    businessAddress: sanitizeText(document.getElementById('invDefBizAddr')?.value || '', 240),
+    businessPhone: sanitizeText(document.getElementById('invDefBizPhone')?.value || '', 40),
+    businessEmail: sanitizeText(document.getElementById('invDefBizEmail')?.value || '', 150),
+    paymentDetails: sanitizeText(document.getElementById('invDefPay')?.value || '', 240),
     gstPercent: Math.max(0, Math.min(50, Number(document.getElementById('invDefGst')?.value || 18))),
     palette: document.getElementById('invDefPalette')?.value || 'violet',
     frameStyle: document.getElementById('invDefFrame')?.value === 'classic' ? 'classic' : 'colorful',
-    googleSheetWebhook: (document.getElementById('invDefSheetUrl')?.value || '').trim()
+    googleSheetWebhook: (document.getElementById('invDefSheetUrl')?.value || '').trim().slice(0, 500)
   };
   if (cfg.invoiceDefaults.googleSheetWebhook && !isValidHttpsUrl(cfg.invoiceDefaults.googleSheetWebhook)) {
     return showToast('Google Sheet Webhook URL must start with https://');
@@ -879,10 +1013,10 @@ function exportMasterInvoicesCsv() {
 /* New Tab Apps Hub Control */
 function addHubApp(e) {
   e.preventDefault();
-  const name = (document.getElementById('hubName')?.value || '').trim();
+  const name = sanitizeText(document.getElementById('hubName')?.value || '', 100);
   const category = document.getElementById('hubCat')?.value || 'Website';
-  const url = (document.getElementById('hubUrl')?.value || '').trim();
-  const desc = (document.getElementById('hubDesc')?.value || '').trim();
+  const url = (document.getElementById('hubUrl')?.value || '').trim().slice(0, 500);
+  const desc = sanitizeText(document.getElementById('hubDesc')?.value || '', 300);
   if (!name || !desc) return showToast('Enter App Name and Description');
   if (!isValidHttpsUrl(url)) return showToast('URL must be a valid https:// address');
 
@@ -918,8 +1052,8 @@ async function deleteHubApp(appId) {
   const found = cfg.hubApps.find(x => x.id === appId);
   cfg.hubApps = cfg.hubApps.filter(x => x.id !== appId);
   saveAdminConfig(cfg);
-  if (db && session.authenticated) {
-    try { await deleteDoc(doc(db, 'hubApps', appId)); } catch {}
+  if (db && fbSdk && session.authenticated) {
+    try { await fbSdk.deleteDoc(fbSdk.doc(db, 'hubApps', sanitizeId(appId))); } catch {}
   }
   appendCloudAudit('HUB_UPDATED', `Deleted Hub App "${found ? found.name : appId}"`, 'WARNING');
   render();
@@ -931,10 +1065,10 @@ function saveCustomerControl(e) {
   e.preventDefault();
   const cs = loadCustomerState();
   cs.customer = {
-    name: (document.getElementById('custName')?.value || '').trim() || 'Customer',
-    accountId: (document.getElementById('custCode')?.value || '').trim() || 'AQV-2026-8419',
-    email: (document.getElementById('custEmail')?.value || '').trim(),
-    city: (document.getElementById('custCity')?.value || '').trim()
+    name: sanitizeText(document.getElementById('custName')?.value || '', 100) || 'Customer',
+    accountId: sanitizeText(document.getElementById('custCode')?.value || '', 40) || 'AQV-2026-8419',
+    email: sanitizeText(document.getElementById('custEmail')?.value || '', 150),
+    city: sanitizeText(document.getElementById('custCity')?.value || '', 120)
   };
   saveCustomerState(cs);
   appendCloudAudit('CONFIG_UPDATED', `Updated customer profile for ${cs.customer.name} (${cs.customer.accountId})`, 'INFO');
@@ -958,6 +1092,16 @@ function toggleCustomerPolicy(field) {
 /* =========================================================================
    AUTH VIEWPORT (CLEAN ADMIN LOGIN + MATH QUIZ + FIREBASE FORGOT PASSWORD)
    ========================================================================= */
+function renderNonBlockingFirebaseBanner() {
+  if (isFirebaseConfigured()) return '';
+  return `
+    <div style="width:100%;max-width:470px;margin:0 auto 12px;padding:10px 14px;border-radius:14px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);display:flex;align-items:center;gap:10px;font-size:12px;color:var(--ink);">
+      <span style="color:var(--amber);flex-shrink:0;">${ic('alert')}</span>
+      <span><strong>Firebase Standby Mode:</strong> Paste your Firebase Web App config into <code>firebase-config.js</code> to activate live cloud authentication.</span>
+    </div>
+  `;
+}
+
 function renderMathQuizBlock() {
   const q = session.mathQuiz;
   return `
@@ -978,7 +1122,6 @@ function renderMathQuizBlock() {
 
 function renderAuthViewport() {
   const isDark = getTheme() === 'dark';
-  const configured = isFirebaseConfigured();
 
   let bodyHtml = '';
 
@@ -989,7 +1132,7 @@ function renderAuthViewport() {
           <span class="shield-chip">${ic('shield')} Verifying Firebase Session</span>
         </div>
         <h1 class="auth-title serif" style="font-size:28px;">Connecting to Firebase</h1>
-        <p class="auth-sub" style="margin-bottom:0;">Checking server-side authentication status...</p>
+        <p class="auth-sub" style="margin-bottom:0;">Checking server-side Admin privileges...</p>
       </div>
     `;
   } else if (session.authView === 'forgot') {
@@ -1000,7 +1143,6 @@ function renderAuthViewport() {
       </div>
       <h1 class="auth-title serif">Forgot Password</h1>
       <p class="auth-sub">Enter your authorized Firebase Admin email and solve the single-digit Math Quiz to receive an official Firebase password reset link.</p>
-      ${!configured ? `<div class="lockout-box">${ic('alert')} <span>Paste your Firebase Web App config in <strong>firebase-config.js</strong> first.</span></div>` : ''}
       ${session.authError ? `<div class="lockout-box">${ic('alert')} <span>${esc(session.authError)}</span></div>` : ''}
       ${session.authNotice ? `<div class="otp-banner"><strong style="color:var(--emerald);">Reset Link Sent</strong><br/>${esc(session.authNotice)}</div>` : ''}
       <form onsubmit="handleForgotPasswordSubmit(event)">
@@ -1021,11 +1163,10 @@ function renderAuthViewport() {
     bodyHtml = `
       <div class="security-shield-row">
         <span class="shield-chip">${ic('shield')} Firebase Auth Gate</span>
-        <span class="shield-chip emerald">Strict Firestore Rules</span>
+        <span class="shield-chip emerald">30m Auto-Logout Guard</span>
       </div>
       <h1 class="auth-title serif">Admin Login</h1>
-      <p class="auth-sub">Sign in with your authorized Firebase Admin email and password. Admin registration from the browser is disabled.</p>
-      ${!configured ? `<div class="lockout-box">${ic('alert')} <span>Setup Required: Paste your Firebase Web App config into <code>firebase-config.js</code>.</span></div>` : ''}
+      <p class="auth-sub">Sign in with your authorized Firebase Admin email and password. Non-admin accounts are automatically rejected by server-side Firestore Security Rules.</p>
       ${session.authError ? `<div class="lockout-box">${ic('alert')} <span>${esc(session.authError)}</span></div>` : ''}
       ${session.authNotice ? `<div class="otp-banner">${esc(session.authNotice)}</div>` : ''}
       <form onsubmit="handleAdminLoginSubmit(event)">
@@ -1065,9 +1206,10 @@ function renderAuthViewport() {
           ${isDark ? ic('sun') : ic('moon')} ${isDark ? 'Day' : 'Night'}
         </button>
       </div>
+      ${renderNonBlockingFirebaseBanner()}
       <div class="auth-card">${bodyHtml}</div>
       <div style="margin-top:14px;font-size:11px;color:var(--ink-tertiary);text-align:center;max-width:460px;">
-        Authenticated via Firebase Authentication &amp; enforced server-side by Firestore Security Rules.
+        Authenticated via Firebase Authentication &bull; 30-Minute Inactivity Auto-Logout &bull; Enforced Server-Side by Firestore Rules.
       </div>
     </div>
   `;
@@ -1253,7 +1395,7 @@ function renderDevicesPanel(cs) {
         <div class="grid-2">
           <div class="field">
             <label>Product Model Name</label>
-            <input id="newUnitModel" class="input" placeholder="e.g. AquaVault Titan-X9 Controller" required />
+            <input id="newUnitModel" class="input" maxlength="120" placeholder="e.g. AquaVault Titan-X9 Controller" required />
           </div>
           <div class="field">
             <label>Hardware Category</label>
@@ -1266,11 +1408,11 @@ function renderDevicesPanel(cs) {
         <div class="grid-2">
           <div class="field">
             <label>Serial Number</label>
-            <input id="newUnitSerial" class="input mono" placeholder="AV-WLC-99201" required />
+            <input id="newUnitSerial" class="input mono" maxlength="80" placeholder="AV-WLC-99201" required />
           </div>
           <div class="field">
             <label>Installation Location Tag</label>
-            <input id="newUnitLocation" class="input" placeholder="e.g. Rooftop Overhead Tank" required />
+            <input id="newUnitLocation" class="input" maxlength="80" placeholder="e.g. Rooftop Overhead Tank" required />
           </div>
         </div>
         <div class="grid-2">
@@ -1280,7 +1422,7 @@ function renderDevicesPanel(cs) {
           </div>
           <div class="field">
             <label>Base Price (INR)</label>
-            <input id="newUnitPrice" class="input mono" type="number" value="7950" min="0" required />
+            <input id="newUnitPrice" class="input mono" type="number" value="7950" min="0" max="10000000" required />
           </div>
         </div>
         <button type="submit" class="btn btn-primary">${ic('plus')} Add Device &amp; Activate Warranty</button>
@@ -1295,6 +1437,7 @@ function renderDevicesPanel(cs) {
         const rem = getDaysRemaining(u.expiryDate);
         const badge = rem === 0 ? 'badge-rose' : rem <= 45 ? 'badge-amber' : 'badge-emerald';
         const label = rem === 0 ? 'Expired' : `${rem}d Left`;
+        const safeId = sanitizeId(u.id);
         return `
           <div class="item-row">
             <div class="item-top">
@@ -1310,10 +1453,10 @@ function renderDevicesPanel(cs) {
               <span class="badge ${badge}">${label}</span>
             </div>
             <div class="item-actions">
-              <button class="btn btn-sm btn-emerald" onclick="extendUnitWarranty('${esc(u.id)}', 90)">+90d Warranty</button>
-              <button class="btn btn-sm btn-soft" onclick="extendUnitWarranty('${esc(u.id)}', 180)">+180d</button>
-              <button class="btn btn-sm btn-soft" onclick="extendUnitWarranty('${esc(u.id)}', 365)">+1 Year</button>
-              <button class="btn btn-sm btn-danger" onclick="deleteUnit('${esc(u.id)}')">${ic('trash')} Remove</button>
+              <button class="btn btn-sm btn-emerald" onclick="extendUnitWarranty('${safeId}', 90)">+90d Warranty</button>
+              <button class="btn btn-sm btn-soft" onclick="extendUnitWarranty('${safeId}', 180)">+180d</button>
+              <button class="btn btn-sm btn-soft" onclick="extendUnitWarranty('${safeId}', 365)">+1 Year</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteUnit('${safeId}')">${ic('trash')} Remove</button>
             </div>
           </div>
         `;
@@ -1343,6 +1486,7 @@ function renderTicketsPanel(cs) {
 
       ${list.map(t => {
         const badge = t.status === 'Resolved' ? 'badge-emerald' : t.status === 'Scheduled' ? 'badge-purple' : 'badge-amber';
+        const safeId = sanitizeId(t.id);
         return `
           <div class="item-row">
             <div class="item-top">
@@ -1354,10 +1498,10 @@ function renderTicketsPanel(cs) {
               <span class="badge ${badge}">${esc(t.status)}</span>
             </div>
             <div class="item-actions">
-              <button class="btn btn-sm btn-outline" onclick="updateTicketStatus('${esc(t.id)}', 'Logged')">Mark Logged</button>
-              <button class="btn btn-sm btn-soft" onclick="updateTicketStatus('${esc(t.id)}', 'Scheduled')">Schedule Visit</button>
-              <button class="btn btn-sm btn-emerald" onclick="updateTicketStatus('${esc(t.id)}', 'Resolved')">${ic('check')} Resolve</button>
-              <button class="btn btn-sm btn-danger" onclick="deleteTicket('${esc(t.id)}')">${ic('trash')}</button>
+              <button class="btn btn-sm btn-outline" onclick="updateTicketStatus('${safeId}', 'Logged')">Mark Logged</button>
+              <button class="btn btn-sm btn-soft" onclick="updateTicketStatus('${safeId}', 'Scheduled')">Schedule Visit</button>
+              <button class="btn btn-sm btn-emerald" onclick="updateTicketStatus('${safeId}', 'Resolved')">${ic('check')} Resolve</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteTicket('${safeId}')">${ic('trash')}</button>
             </div>
           </div>
         `;
@@ -1387,17 +1531,17 @@ function renderInvoicesPanel(cfg, cs) {
         <div class="grid-2">
           <div class="field">
             <label>Default Business Name</label>
-            <input id="invDefBizName" class="input" value="${esc(d.businessName)}" required />
+            <input id="invDefBizName" class="input" maxlength="120" value="${esc(d.businessName)}" required />
           </div>
           <div class="field">
             <label>Default Billing Phone</label>
-            <input id="invDefBizPhone" class="input" value="${esc(d.businessPhone)}" />
+            <input id="invDefBizPhone" class="input" maxlength="40" value="${esc(d.businessPhone)}" />
           </div>
         </div>
         <div class="grid-2">
           <div class="field">
             <label>Default Billing Email</label>
-            <input id="invDefBizEmail" class="input" value="${esc(d.businessEmail)}" />
+            <input id="invDefBizEmail" class="input" maxlength="150" value="${esc(d.businessEmail)}" />
           </div>
           <div class="field">
             <label>Default GST / Tax %</label>
@@ -1406,11 +1550,11 @@ function renderInvoicesPanel(cfg, cs) {
         </div>
         <div class="field">
           <label>Default Business Address</label>
-          <input id="invDefBizAddr" class="input" value="${esc(d.businessAddress)}" />
+          <input id="invDefBizAddr" class="input" maxlength="240" value="${esc(d.businessAddress)}" />
         </div>
         <div class="field">
           <label>Default Bank / UPI Payment Instructions</label>
-          <input id="invDefPay" class="input" value="${esc(d.paymentDetails)}" />
+          <input id="invDefPay" class="input" maxlength="240" value="${esc(d.paymentDetails)}" />
         </div>
         <div class="grid-2">
           <div class="field">
@@ -1429,7 +1573,7 @@ function renderInvoicesPanel(cfg, cs) {
         </div>
         <div class="field">
           <label>Default Google Sheets Apps Script Webhook (Optional HTTPS)</label>
-          <input id="invDefSheetUrl" class="input mono" type="url" value="${esc(d.googleSheetWebhook || '')}" placeholder="https://script.google.com/macros/s/.../exec" />
+          <input id="invDefSheetUrl" class="input mono" type="url" maxlength="500" value="${esc(d.googleSheetWebhook || '')}" placeholder="https://script.google.com/macros/s/.../exec" />
         </div>
         <button type="submit" class="btn btn-primary">${ic('check')} Save Invoice Studio Defaults</button>
       </form>
@@ -1443,7 +1587,9 @@ function renderInvoicesPanel(cfg, cs) {
         </div>
         <button class="btn btn-sm btn-emerald" onclick="exportMasterInvoicesCsv()">${ic('download')} Export Master CSV</button>
       </div>
-      ${saved.map(inv => `
+      ${saved.map(inv => {
+        const safeId = sanitizeId(inv.id);
+        return `
         <div class="item-row">
           <div class="item-top">
             <div>
@@ -1453,12 +1599,13 @@ function renderInvoicesPanel(cfg, cs) {
             <span class="badge ${inv.status === 'PAID' ? 'badge-emerald' : inv.status === 'OVERDUE' ? 'badge-rose' : 'badge-amber'}">${esc(inv.status)}</span>
           </div>
           <div class="item-actions">
-            <button class="btn btn-sm btn-emerald" onclick="updateSavedInvoiceStatus('${esc(inv.id)}', 'PAID')">Mark PAID</button>
-            <button class="btn btn-sm btn-outline" onclick="updateSavedInvoiceStatus('${esc(inv.id)}', 'PENDING')">Pending</button>
-            <button class="btn btn-sm btn-danger" onclick="updateSavedInvoiceStatus('${esc(inv.id)}', 'OVERDUE')">Overdue</button>
+            <button class="btn btn-sm btn-emerald" onclick="updateSavedInvoiceStatus('${safeId}', 'PAID')">Mark PAID</button>
+            <button class="btn btn-sm btn-outline" onclick="updateSavedInvoiceStatus('${safeId}', 'PENDING')">Pending</button>
+            <button class="btn btn-sm btn-danger" onclick="updateSavedInvoiceStatus('${safeId}', 'OVERDUE')">Overdue</button>
           </div>
         </div>
-      `).join('') || '<div style="font-size:13px;color:var(--ink-tertiary);">No invoices saved in Customer Invoice Vault yet.</div>'}
+      `;
+      }).join('') || '<div style="font-size:13px;color:var(--ink-tertiary);">No invoices saved in Customer Invoice Vault yet.</div>'}
     </div>
   `;
 }
@@ -1477,7 +1624,7 @@ function renderHubPanel(cfg) {
         <div class="grid-2">
           <div class="field">
             <label>App / Website Title</label>
-            <input id="hubName" class="input" placeholder="e.g. AquaVault Dealer Locator" required />
+            <input id="hubName" class="input" maxlength="100" placeholder="e.g. AquaVault Dealer Locator" required />
           </div>
           <div class="field">
             <label>Category</label>
@@ -1490,11 +1637,11 @@ function renderHubPanel(cfg) {
         </div>
         <div class="field">
           <label>Destination URL (Strict https:// only)</label>
-          <input id="hubUrl" class="input mono" type="url" placeholder="https://example.com" required />
+          <input id="hubUrl" class="input mono" type="url" maxlength="500" placeholder="https://example.com" required />
         </div>
         <div class="field">
           <label>Short Description</label>
-          <input id="hubDesc" class="input" placeholder="One-line value summary for customers" required />
+          <input id="hubDesc" class="input" maxlength="300" placeholder="One-line value summary for customers" required />
         </div>
         <button type="submit" class="btn btn-primary">${ic('plus')} Publish to Customer Hub</button>
       </form>
@@ -1502,7 +1649,9 @@ function renderHubPanel(cfg) {
 
     <div class="card">
       <div class="card-head"><h2 class="card-title">Live Hub Directory (${cfg.hubApps.length})</h2></div>
-      ${cfg.hubApps.map(app => `
+      ${cfg.hubApps.map(app => {
+        const safeId = sanitizeId(app.id);
+        return `
         <div class="item-row">
           <div class="item-top">
             <div style="min-width:0;flex:1;">
@@ -1513,11 +1662,12 @@ function renderHubPanel(cfg) {
             <span class="badge ${app.enabled ? 'badge-emerald' : 'badge-rose'}">${app.enabled ? 'Visible' : 'Hidden'}</span>
           </div>
           <div class="item-actions">
-            <button class="btn btn-sm btn-soft" onclick="toggleHubApp('${esc(app.id)}')">${app.enabled ? 'Hide Card' : 'Show Card'}</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteHubApp('${esc(app.id)}')">${ic('trash')} Delete</button>
+            <button class="btn btn-sm btn-soft" onclick="toggleHubApp('${safeId}')">${app.enabled ? 'Hide Card' : 'Show Card'}</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteHubApp('${safeId}')">${ic('trash')} Delete</button>
           </div>
         </div>
-      `).join('')}
+      `;
+      }).join('')}
     </div>
   `;
 }
@@ -1537,19 +1687,19 @@ function renderCustomersPanel(cs) {
         <form onsubmit="saveCustomerControl(event)">
           <div class="field">
             <label>Customer Full Name</label>
-            <input id="custName" class="input" value="${esc(c.name)}" required />
+            <input id="custName" class="input" maxlength="100" value="${esc(c.name)}" required />
           </div>
           <div class="field">
             <label>AquaVault Customer ID</label>
-            <input id="custCode" class="input mono" value="${esc(c.accountId)}" required />
+            <input id="custCode" class="input mono" maxlength="40" value="${esc(c.accountId)}" required />
           </div>
           <div class="field">
             <label>Customer Email</label>
-            <input id="custEmail" class="input" type="email" value="${esc(c.email)}" />
+            <input id="custEmail" class="input" type="email" maxlength="150" value="${esc(c.email)}" />
           </div>
           <div class="field">
             <label>City / Region</label>
-            <input id="custCity" class="input" value="${esc(c.city)}" />
+            <input id="custCity" class="input" maxlength="120" value="${esc(c.city)}" />
           </div>
           <button type="submit" class="btn btn-primary btn-full">${ic('check')} Update Customer Record</button>
         </form>
@@ -1593,7 +1743,7 @@ function renderSecurityPanel(logs) {
     <div class="page-head">
       <div class="eyebrow">Server-Side Firebase Security</div>
       <h1 class="page-title serif">Firebase Security &amp; Audit</h1>
-      <p class="page-desc">Admin authentication and permissions are enforced exclusively by Firebase Authentication and Firestore Security Rules. Zero local passwords or public secrets are used.</p>
+      <p class="page-desc">Admin authentication and permissions are enforced exclusively by Firebase Authentication, a 30-minute inactivity auto-logout timer, and Firestore Security Rules.</p>
     </div>
 
     <div class="grid-2">
@@ -1610,6 +1760,8 @@ function renderSecurityPanel(logs) {
           <div class="mono" style="font-size:13.5px;font-weight:700;margin-top:2px;">${esc(user.email || 'Unknown')}</div>
           <div style="font-size:12px;color:var(--ink-tertiary);margin-top:10px;">Firebase UID</div>
           <div class="mono" style="font-size:12px;color:var(--ink-secondary);margin-top:2px;word-break:break-all;">${esc(user.uid || '')}</div>
+          <div style="font-size:12px;color:var(--ink-tertiary);margin-top:10px;">Inactivity Auto-Logout Protection</div>
+          <div class="mono" style="font-size:12px;color:var(--primary);margin-top:2px;">Active (${getRemainingSessionMinutes()} min remaining before auto-logout)</div>
           <div style="font-size:12px;color:var(--ink-tertiary);margin-top:10px;">Last Firestore Sync</div>
           <div class="mono" style="font-size:12px;color:var(--emerald);margin-top:2px;">${esc(session.cloudSyncedAt || 'Synced')}</div>
         </div>
@@ -1650,11 +1802,11 @@ function renderSecurityPanel(logs) {
       </div>
       <div class="security-shield-row" style="margin-bottom:0;">
         <span class="shield-chip emerald">Zero Local Admin Storage</span>
-        <span class="shield-chip emerald">Admin UI Signup Disabled</span>
+        <span class="shield-chip emerald">30-Min Inactivity Logout</span>
         <span class="shield-chip emerald">Strict Admin Email Rules</span>
         <span class="shield-chip emerald">Per-User UID Isolation</span>
-        <span class="shield-chip emerald">HTTPS-Only Hub URLs</span>
-        <span class="shield-chip emerald">Append-Only Audit Logs</span>
+        <span class="shield-chip emerald">Root User Listing Blocked</span>
+        <span class="shield-chip emerald">30-Key Payload Cap</span>
       </div>
     </div>
 
@@ -1734,6 +1886,7 @@ function renderAdminShell() {
             </div>
           </div>
           <div class="topbar-actions">
+            <span id="idleTimerBadge" class="badge badge-purple mono" style="font-size:10.5px;">Auto-Logout: ${getRemainingSessionMinutes()}m</span>
             <button class="pill-btn" onclick="toggleAdminTheme()">
               ${isDark ? ic('sun') : ic('moon')} ${isDark ? 'Day' : 'Night'}
             </button>
@@ -1768,9 +1921,13 @@ function renderAdminShell() {
 }
 
 function render() {
-  const root = document.getElementById('adminRoot');
-  if (!root) return;
-  root.innerHTML = session.authenticated ? renderAdminShell() : renderAuthViewport();
+  try {
+    const root = document.getElementById('adminRoot');
+    if (!root) return;
+    root.innerHTML = session.authenticated ? renderAdminShell() : renderAuthViewport();
+  } catch (err) {
+    console.error('Admin render fallback triggered:', err);
+  }
 }
 
 /* =========================================================================
@@ -1809,7 +1966,6 @@ Object.assign(window, {
 });
 
 (function initAdminApp() {
-  // Remove any legacy local admin vault keys from previous builds
   try {
     localStorage.removeItem('aquavault_admin_vault_v1');
     localStorage.removeItem('aquavault_admin_fb_meta_v1');
@@ -1817,37 +1973,13 @@ Object.assign(window, {
   } catch {}
 
   rollMathQuiz();
+  startInactivityWatchdog();
 
-  if (auth) {
-    onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        session.authenticated = false;
-        session.user = null;
-        session.checkingAuth = false;
-        render();
-        return;
-      }
+  // Always render immediately so a blank screen can NEVER occur
+  render();
 
-      session.checkingAuth = true;
-      render();
-      const allowed = await verifyAndLoadAdminSession(user);
-      if (!allowed) {
-        await signOut(auth);
-        session.authenticated = false;
-        session.user = null;
-        session.authError = 'Access Denied by Firestore Security Rules: This account is not an authorized Admin.';
-      } else {
-        session.authenticated = true;
-        session.user = user;
-        session.authError = '';
-      }
-      session.checkingAuth = false;
-      render();
-    });
-  } else {
-    session.checkingAuth = false;
-    render();
-  }
+  // Asynchronously initialize Firebase SDK inside try/catch if configured
+  initFirebaseSafely();
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
