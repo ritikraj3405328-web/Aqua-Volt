@@ -1,0 +1,204 @@
+{
+  "entities": {
+    "CustomerProfile": {
+      "title": "CustomerProfile",
+      "description": "Authenticated customer profile, theme preference, cloud sync toggles, and DPDP Act consent record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the customer." },
+        "displayName": { "type": "string", "description": "Customer display name." },
+        "email": { "type": "string", "description": "Customer Google account email." },
+        "customerCode": { "type": "string", "description": "Unique AquaVault customer identifier." },
+        "phone": { "type": "string", "description": "Optional customer contact number." },
+        "address": { "type": "string", "description": "Optional installation address." },
+        "darkModeEnabled": { "type": "boolean", "description": "Whether Black + Purple Night Mode is active." },
+        "dpdpConsentAccepted": { "type": "boolean", "description": "Whether DPDP Act data processing consent is granted." },
+        "dpdpConsentVersion": { "type": "string", "description": "Version tag of accepted DPDP notice." },
+        "gmailSyncEnabled": { "type": "boolean", "description": "Whether personal notepad Gmail sync workflow is enabled." },
+        "driveAutoSaveEnabled": { "type": "boolean", "description": "Whether personal notepad Drive auto-save workflow is enabled." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "email",
+        "customerCode",
+        "darkModeEnabled",
+        "dpdpConsentAccepted",
+        "dpdpConsentVersion",
+        "gmailSyncEnabled",
+        "driveAutoSaveEnabled",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WarrantyUnit": {
+      "title": "WarrantyUnit",
+      "description": "Installed Water Level Controller or Water Stopper unit with warranty timeline and digital invoice metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "deviceType": { "type": "string", "enum": ["WATER_LEVEL_CONTROLLER", "WATER_STOPPER"], "description": "Category of installed water hardware." },
+        "productName": { "type": "string", "description": "Commercial model name." },
+        "modelCode": { "type": "string", "description": "Hardware model code." },
+        "serialNumber": { "type": "string", "description": "Unique hardware serial number." },
+        "locationTag": { "type": "string", "description": "Installation tag such as Overhead Tank or Underground Sump." },
+        "installEpochDay": { "type": "integer", "description": "Installation date as epoch days (UTC)." },
+        "warrantyTotalDays": { "type": "integer", "description": "Total warranty coverage duration in days." },
+        "unitStatus": { "type": "string", "enum": ["ONLINE", "STANDBY", "ATTENTION"], "description": "Current operational status tag." },
+        "invoiceNumber": { "type": "string", "description": "Digital bill invoice number." },
+        "purchaseAmountInr": { "type": "number", "description": "Base purchase amount in INR." },
+        "gstAmountInr": { "type": "number", "description": "GST tax amount in INR." },
+        "dealerName": { "type": "string", "description": "Authorized dealer or distributor name." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "userId",
+        "deviceType",
+        "productName",
+        "modelCode",
+        "serialNumber",
+        "locationTag",
+        "installEpochDay",
+        "warrantyTotalDays",
+        "unitStatus",
+        "invoiceNumber",
+        "purchaseAmountInr",
+        "gstAmountInr",
+        "dealerName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ServiceRequest": {
+      "title": "ServiceRequest",
+      "description": "Customer service or inspection request logged for an installed unit.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "ticketNumber": { "type": "string", "description": "Generated service ticket identifier." },
+        "warrantyId": { "type": "string", "description": "Document ID of the associated WarrantyUnit." },
+        "deviceLabel": { "type": "string", "description": "Readable device name and location." },
+        "issueCategory": { "type": "string", "description": "Issue category label." },
+        "issueNote": { "type": "string", "description": "Customer issue description." },
+        "preferredSlot": { "type": "string", "description": "Preferred technician visit slot." },
+        "status": { "type": "string", "enum": ["LOGGED", "SCHEDULED", "RESOLVED"], "description": "Current ticket status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "userId",
+        "ticketNumber",
+        "warrantyId",
+        "deviceLabel",
+        "issueCategory",
+        "issueNote",
+        "preferredSlot",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CalcEntry": {
+      "title": "CalcEntry",
+      "description": "Hisab-Kitab calculator tape entry persisted to the user's cloud history.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "label": { "type": "string", "description": "Optional note label for the calculation." },
+        "expression": { "type": "string", "description": "Readable math expression." },
+        "resultValue": { "type": "number", "description": "Computed numeric result." },
+        "resultFormatted": { "type": "string", "description": "Formatted display string." },
+        "mode": { "type": "string", "enum": ["STANDARD", "QTY_RATE", "SPLIT", "MARGIN"], "description": "Calculator mode used." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "userId",
+        "label",
+        "expression",
+        "resultValue",
+        "resultFormatted",
+        "mode",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PersonalNote": {
+      "title": "PersonalNote",
+      "description": "Customer personal notepad entry synced to Cloud Firestore with Gmail and Drive sync metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "title": { "type": "string", "description": "Note headline." },
+        "content": { "type": "string", "description": "Full text body of the note." },
+        "tag": { "type": "string", "description": "Category tag." },
+        "pinned": { "type": "boolean", "description": "Whether the note is pinned to the top." },
+        "gmailSyncState": { "type": "string", "enum": ["SYNCED", "QUEUED", "DISABLED"], "description": "Gmail sync indicator state." },
+        "driveSyncState": { "type": "string", "enum": ["AUTO_SAVED", "PENDING", "OFFLINE_LOCAL"], "description": "Google Drive auto-save indicator state." },
+        "lastSyncedLabel": { "type": "string", "description": "Human-readable sync status label." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "userId",
+        "title",
+        "content",
+        "tag",
+        "pinned",
+        "gmailSyncState",
+        "driveSyncState",
+        "lastSyncedLabel",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PrivacyAuditLog": {
+      "title": "PrivacyAuditLog",
+      "description": "Immutable DPDP Act consent and privacy request log entry.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "actionType": { "type": "string", "enum": ["CONSENT_GRANTED", "CONSENT_WITHDRAWN", "DATA_EXPORT", "DELETION_REQUESTED"], "description": "Type of DPDP privacy event." },
+        "details": { "type": "string", "description": "Transparent description of the action." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "userId",
+        "actionType",
+        "details",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/CustomerProfile" },
+      "description": "Customer profile, theme preference, cloud sync toggles, and DPDP consent."
+    },
+    "/users/{userId}/warranties/{warrantyId}": {
+      "schema": { "$ref": "#/entities/WarrantyUnit" },
+      "description": "Installed Water Level Controllers and Water Stoppers with warranty and bill data."
+    },
+    "/users/{userId}/serviceRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/ServiceRequest" },
+      "description": "Customer service and inspection tickets."
+    },
+    "/users/{userId}/calcEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/CalcEntry" },
+      "description": "Hisab-Kitab calculator running history tape."
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/PersonalNote" },
+      "description": "Personal notepad entries synced across sessions."
+    },
+    "/users/{userId}/privacyRequests/{reqId}": {
+      "schema": { "$ref": "#/entities/PrivacyAuditLog" },
+      "description": "DPDP Act consent and privacy audit trail."
+    }
+  }
+}

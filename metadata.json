@@ -1,0 +1,6 @@
+{
+  "name": "AquaVault",
+  "description": "Premium customer portal for Water Level Controllers and Water Stoppers featuring live warranty countdown analytics, digital bills, service requests, Hisab-Kitab calculator, cloud-synced personal notepad, future apps hub, and DPDP Act privacy controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

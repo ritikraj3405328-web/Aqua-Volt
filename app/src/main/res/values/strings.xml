@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">AquaVault</string>
+    <string name="brand_tagline">Precision Water Automation &amp; Protection</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_warranty">Warranty</string>
+    <string name="nav_devices">Devices</string>
+    <string name="nav_calculator">Hisab</string>
+    <string name="nav_notepad">Notepad</string>
+    <string name="nav_apps_hub">New Tab</string>
+    <string name="nav_privacy">Privacy</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="day_mode">Day</string>
+    <string name="night_mode">Night</string>
+    <string name="cd_day_night_toggle">Toggle Day and Night theme mode</string>
+    <string name="cd_brand_logo">AquaVault Brand Emblem</string>
+    <string name="cd_hero_hardware">AquaVault Water Level Controller and Water Stopper hardware unit</string>
+    <string name="cd_auth_artwork">AquaVault luxury crystal water wave visual</string>
+    <string name="dpdp_title">DPDP Act Data Privacy &amp; Consent</string>
+    <string name="dpdp_banner_body">In accordance with India\'s Digital Personal Data Protection (DPDP) Act, AquaVault stores your warranty profile, service tickets, calculator tape, and personal notes securely in your private cloud account.</string>
+</resources>

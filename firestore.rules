@@ -1,0 +1,293 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Reusable Security Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    // 3. Entity Validation Blueprints (Anti-Update-Gap)
+    function isValidCustomerProfile(data, userId) {
+      return data.userId is string && data.userId == userId &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.email is string && data.email.size() <= 200 &&
+        data.customerCode is string && data.customerCode.size() >= 1 && data.customerCode.size() <= 40 &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
+        data.darkModeEnabled is bool &&
+        data.dpdpConsentAccepted is bool &&
+        data.dpdpConsentVersion is string && data.dpdpConsentVersion.size() >= 1 && data.dpdpConsentVersion.size() <= 30 &&
+        data.gmailSyncEnabled is bool &&
+        data.driveAutoSaveEnabled is bool &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidWarrantyUnit(data, userId) {
+      return data.userId is string && data.userId == userId &&
+        data.deviceType is string && data.deviceType in ['WATER_LEVEL_CONTROLLER', 'WATER_STOPPER'] &&
+        data.productName is string && data.productName.size() >= 1 && data.productName.size() <= 120 &&
+        data.modelCode is string && data.modelCode.size() >= 1 && data.modelCode.size() <= 60 &&
+        data.serialNumber is string && data.serialNumber.size() >= 1 && data.serialNumber.size() <= 80 &&
+        data.locationTag is string && data.locationTag.size() >= 1 && data.locationTag.size() <= 80 &&
+        data.installEpochDay is int && data.installEpochDay >= 10000 && data.installEpochDay <= 100000 &&
+        data.warrantyTotalDays is int && data.warrantyTotalDays >= 1 && data.warrantyTotalDays <= 3650 &&
+        data.unitStatus is string && data.unitStatus in ['ONLINE', 'STANDBY', 'ATTENTION'] &&
+        data.invoiceNumber is string && data.invoiceNumber.size() >= 1 && data.invoiceNumber.size() <= 60 &&
+        data.purchaseAmountInr is number && data.purchaseAmountInr >= 0 && data.purchaseAmountInr <= 10000000 &&
+        data.gstAmountInr is number && data.gstAmountInr >= 0 && data.gstAmountInr <= 2000000 &&
+        data.dealerName is string && data.dealerName.size() >= 1 && data.dealerName.size() <= 120 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidServiceRequest(data, userId) {
+      return data.userId is string && data.userId == userId &&
+        data.ticketNumber is string && data.ticketNumber.size() >= 1 && data.ticketNumber.size() <= 40 &&
+        isValidId(data.warrantyId) &&
+        data.deviceLabel is string && data.deviceLabel.size() >= 1 && data.deviceLabel.size() <= 150 &&
+        data.issueCategory is string && data.issueCategory.size() >= 1 && data.issueCategory.size() <= 60 &&
+        data.issueNote is string && data.issueNote.size() >= 1 && data.issueNote.size() <= 1000 &&
+        data.preferredSlot is string && data.preferredSlot.size() >= 1 && data.preferredSlot.size() <= 60 &&
+        data.status is string && data.status in ['LOGGED', 'SCHEDULED', 'RESOLVED'] &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidCalcEntry(data, userId) {
+      return data.userId is string && data.userId == userId &&
+        data.label is string && data.label.size() <= 120 &&
+        data.expression is string && data.expression.size() >= 1 && data.expression.size() <= 200 &&
+        data.resultValue is number && data.resultValue >= -1000000000000 && data.resultValue <= 1000000000000 &&
+        data.resultFormatted is string && data.resultFormatted.size() >= 1 && data.resultFormatted.size() <= 60 &&
+        data.mode is string && data.mode in ['STANDARD', 'QTY_RATE', 'SPLIT', 'MARGIN'] &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidPersonalNote(data, userId) {
+      return data.userId is string && data.userId == userId &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 150 &&
+        data.content is string && data.content.size() <= 20000 &&
+        data.tag is string && data.tag.size() <= 40 &&
+        data.pinned is bool &&
+        data.gmailSyncState is string && data.gmailSyncState in ['SYNCED', 'QUEUED', 'DISABLED'] &&
+        data.driveSyncState is string && data.driveSyncState in ['AUTO_SAVED', 'PENDING', 'OFFLINE_LOCAL'] &&
+        data.lastSyncedLabel is string && data.lastSyncedLabel.size() <= 80 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidPrivacyAuditLog(data, userId) {
+      return data.userId is string && data.userId == userId &&
+        data.actionType is string && data.actionType in ['CONSENT_GRANTED', 'CONSENT_WITHDRAWN', 'DATA_EXPORT', 'DELETION_REQUESTED'] &&
+        data.details is string && data.details.size() >= 1 && data.details.size() <= 500 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    // 4. Customer Root Document & Subcollections
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        incoming().keys().hasAll([
+          'userId', 'displayName', 'email', 'customerCode',
+          'darkModeEnabled', 'dpdpConsentAccepted', 'dpdpConsentVersion',
+          'gmailSyncEnabled', 'driveAutoSaveEnabled', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'userId', 'displayName', 'email', 'customerCode', 'phone', 'address',
+          'darkModeEnabled', 'dpdpConsentAccepted', 'dpdpConsentVersion',
+          'gmailSyncEnabled', 'driveAutoSaveEnabled', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidCustomerProfile(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidCustomerProfile(incoming(), userId) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'phone', 'address', 'darkModeEnabled',
+          'dpdpConsentAccepted', 'dpdpConsentVersion',
+          'gmailSyncEnabled', 'driveAutoSaveEnabled', 'updatedAt'
+        ]);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // Installed Units & Warranties
+      match /warranties/{warrantyId} {
+        allow get: if isOwner(userId) && isValidId(warrantyId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(warrantyId) &&
+          incoming().keys().hasAll([
+            'userId', 'deviceType', 'productName', 'modelCode', 'serialNumber',
+            'locationTag', 'installEpochDay', 'warrantyTotalDays', 'unitStatus',
+            'invoiceNumber', 'purchaseAmountInr', 'gstAmountInr', 'dealerName',
+            'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'deviceType', 'productName', 'modelCode', 'serialNumber',
+            'locationTag', 'installEpochDay', 'warrantyTotalDays', 'unitStatus',
+            'invoiceNumber', 'purchaseAmountInr', 'gstAmountInr', 'dealerName',
+            'createdAt', 'updatedAt'
+          ]) &&
+          isValidWarrantyUnit(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(warrantyId) &&
+          isValidWarrantyUnit(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'locationTag', 'unitStatus', 'updatedAt'
+          ]);
+
+        allow delete: if isOwner(userId) && isValidId(warrantyId);
+      }
+
+      // Service & Support Requests
+      match /serviceRequests/{requestId} {
+        allow get: if isOwner(userId) && isValidId(requestId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(requestId) &&
+          incoming().keys().hasAll([
+            'userId', 'ticketNumber', 'warrantyId', 'deviceLabel',
+            'issueCategory', 'issueNote', 'preferredSlot', 'status',
+            'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'ticketNumber', 'warrantyId', 'deviceLabel',
+            'issueCategory', 'issueNote', 'preferredSlot', 'status',
+            'createdAt', 'updatedAt'
+          ]) &&
+          incoming().status == 'LOGGED' &&
+          isValidServiceRequest(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(requestId) &&
+          isValidServiceRequest(incoming(), userId) &&
+          existing().status != 'RESOLVED' &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'issueNote', 'preferredSlot', 'status', 'updatedAt'
+          ]);
+
+        allow delete: if isOwner(userId) && isValidId(requestId);
+      }
+
+      // Hisab-Kitab Calculator Entries
+      match /calcEntries/{entryId} {
+        allow get: if isOwner(userId) && isValidId(entryId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(entryId) &&
+          incoming().keys().hasAll([
+            'userId', 'label', 'expression', 'resultValue',
+            'resultFormatted', 'mode', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'label', 'expression', 'resultValue',
+            'resultFormatted', 'mode', 'createdAt', 'updatedAt'
+          ]) &&
+          isValidCalcEntry(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(entryId) &&
+          isValidCalcEntry(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'label', 'updatedAt'
+          ]);
+
+        allow delete: if isOwner(userId) && isValidId(entryId);
+      }
+
+      // Personal Notepad Entries
+      match /notes/{noteId} {
+        allow get: if isOwner(userId) && isValidId(noteId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(noteId) &&
+          incoming().keys().hasAll([
+            'userId', 'title', 'content', 'tag', 'pinned',
+            'gmailSyncState', 'driveSyncState', 'lastSyncedLabel',
+            'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'title', 'content', 'tag', 'pinned',
+            'gmailSyncState', 'driveSyncState', 'lastSyncedLabel',
+            'createdAt', 'updatedAt'
+          ]) &&
+          isValidPersonalNote(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(noteId) &&
+          isValidPersonalNote(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'content', 'tag', 'pinned',
+            'gmailSyncState', 'driveSyncState', 'lastSyncedLabel', 'updatedAt'
+          ]);
+
+        allow delete: if isOwner(userId) && isValidId(noteId);
+      }
+
+      // DPDP Privacy Audit Logs (Append-Only, User-Owned)
+      match /privacyRequests/{reqId} {
+        allow get: if isOwner(userId) && isValidId(reqId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(reqId) &&
+          incoming().keys().hasAll([
+            'userId', 'actionType', 'details', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'userId', 'actionType', 'details', 'createdAt', 'updatedAt'
+          ]) &&
+          isValidPrivacyAuditLog(incoming(), userId);
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(reqId);
+      }
+    }
+  }
+}
