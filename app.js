@@ -1,6 +1,5 @@
 /* =========================================================================
-   AQUAVAULT — MULTI-PAGE PWA APPLICATION ENGINE
-   True Multi-Page Navigation + Native Back Button + 7-Second Top PWA Install Popup
+   AQUAVAULT — MULTI-PAGE PWA APPLICATION ENGINE (v4 — CROSS-VERIFIED)
    ========================================================================= */
 
 const ICONS = {
@@ -39,12 +38,12 @@ const ICONS = {
 
 const ROUTES = [
   { id: 'home', href: 'index.html', label: 'Home', subtitle: 'Overview', icon: 'home', group: 'care', dock: true },
-  { id: 'warranty', href: 'warranty.html', label: 'Warranty', subtitle: 'Warranty Countdown', icon: 'warranty', group: 'care', dock: true },
-  { id: 'devices', href: 'devices.html', label: 'Devices', subtitle: 'Devices, Bills & Service', icon: 'devices', group: 'care', dock: true },
-  { id: 'calculator', href: 'calculator.html', label: 'Hisab', fullLabel: 'Hisab-Kitab', subtitle: 'Hisab-Kitab Calculator', icon: 'calc', group: 'work', dock: true },
-  { id: 'notes', href: 'notes.html', label: 'Notes', fullLabel: 'Notepad & Sync', subtitle: 'Notepad & Auto-Sync', icon: 'notes', group: 'work', dock: true },
-  { id: 'hub', href: 'hub.html', label: 'New Tab', fullLabel: 'New Tab (Apps Hub)', subtitle: 'Ecosystem Apps Hub', icon: 'hub', group: 'work', dock: false },
-  { id: 'privacy', href: 'privacy.html', label: 'Privacy', fullLabel: 'DPDP Privacy & Settings', subtitle: 'DPDP Act & Settings', icon: 'privacy', group: 'work', dock: false }
+  { id: 'warranty', href: 'warranty.html', label: 'Warranty', subtitle: 'Live Countdown', icon: 'warranty', group: 'care', dock: true },
+  { id: 'devices', href: 'devices.html', label: 'Devices', subtitle: 'Bills & Service', icon: 'devices', group: 'care', dock: true },
+  { id: 'calculator', href: 'calculator.html', label: 'Hisab', fullLabel: 'Hisab-Kitab', subtitle: 'Calculator', icon: 'calc', group: 'work', dock: true },
+  { id: 'notes', href: 'notes.html', label: 'Notes', fullLabel: 'Notepad & Sync', subtitle: 'Notepad Sync', icon: 'notes', group: 'work', dock: true },
+  { id: 'hub', href: 'hub.html', label: 'New Tab', fullLabel: 'New Tab (Apps Hub)', subtitle: 'Apps Hub', icon: 'hub', group: 'work', dock: false },
+  { id: 'privacy', href: 'privacy.html', label: 'Privacy', fullLabel: 'DPDP Privacy & Settings', subtitle: 'DPDP & Settings', icon: 'privacy', group: 'work', dock: false }
 ];
 
 const HUB_APPS = [
@@ -120,7 +119,9 @@ function formatDate(iso) {
 }
 
 function formatINR(num) {
-  return '₹' + Number(num || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const n = Number(num) || 0;
+  const sign = n < 0 ? '-' : '';
+  return sign + '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
 function getWarrantyMetrics(unit) {
@@ -163,6 +164,7 @@ function buildInitialState() {
     calcDisplay: '0',
     calcExpr: '',
     calcJustEvaluated: false,
+    calcFreshOperand: true,
     hubFilter: 'All',
     noteFilter: 'All',
     noteSearch: '',
@@ -313,16 +315,6 @@ function goBackPage() {
   }
 }
 
-function goToPage(routeId) {
-  const target = ROUTES.find(r => r.id === routeId);
-  if (!target) return;
-  if (target.id === CURRENT_PAGE) {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    return;
-  }
-  window.location.href = target.href;
-}
-
 /* =========================================================================
    PWA SERVICE WORKER + 7-SECOND AUTO-HIDING TOP INSTALL POPUP
    ========================================================================= */
@@ -340,7 +332,6 @@ function initPWA() {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
-    // If popup wasn't already shown in this session and not standalone, show it cleanly
     if (!isStandalonePWA() && !sessionStorage.getItem(PWA_POPUP_SESSION_KEY)) {
       showTopInstallPopup();
     }
@@ -353,7 +344,6 @@ function initPWA() {
     if (CURRENT_PAGE === 'privacy') render();
   });
 
-  // Show top PWA Install popup for 7 seconds on app launch (once per session, never if already installed)
   if (!isStandalonePWA() && !sessionStorage.getItem(PWA_POPUP_SESSION_KEY)) {
     setTimeout(() => {
       showTopInstallPopup();
@@ -368,7 +358,6 @@ function showTopInstallPopup(force = false) {
 
   sessionStorage.setItem(PWA_POPUP_SESSION_KEY, '1');
 
-  // Restart CSS 7s bar animation cleanly
   popup.classList.remove('visible');
   void popup.offsetWidth;
   popup.classList.add('visible');
@@ -404,7 +393,6 @@ async function triggerPWAInstall() {
     return;
   }
 
-  // Fallback luxury install instructions modal (for iOS Safari or when browser prompt is deferred)
   openInstallGuideModal();
 }
 
@@ -461,7 +449,7 @@ function closeInstallGuideModal(fromPopState = false) {
 }
 
 /* =========================================================================
-   MODAL HISTORY STACK (SO BACK BUTTON CLOSES MODALS CLEANLY)
+   MODAL HISTORY STACK (BACK BUTTON CLOSES MODALS CLEANLY)
    ========================================================================= */
 function pushModalState(modalName) {
   try {
@@ -540,7 +528,7 @@ function mountShell() {
         <div class="pwa-popup-icon"><img src="assets/icon-192.png" alt="AquaVault App Icon" /></div>
         <div class="pwa-popup-copy">
           <div class="pwa-popup-title">Install AquaVault App</div>
-          <div class="pwa-popup-sub">Instant home screen &amp; offline PWA access</div>
+          <div class="pwa-popup-sub">Home screen &amp; offline PWA access</div>
         </div>
         <button class="pwa-install-cta" onclick="triggerPWAInstall()">
           ${ICONS.download} <span>Install</span>
@@ -553,7 +541,6 @@ function mountShell() {
     </div>
 
     <div class="app-shell">
-      <!-- DESKTOP SIDEBAR -->
       <aside class="sidebar" aria-label="Primary Navigation">
         <a href="index.html" class="sidebar-brand">
           <div class="brand-emblem"><img src="assets/app-icon.jpg" alt="AquaVault Crest" /></div>
@@ -573,7 +560,6 @@ function mountShell() {
         </div>
       </aside>
 
-      <!-- MAIN COLUMN -->
       <div class="main-column">
         <header class="topbar">
           <div class="topbar-left">
@@ -606,15 +592,12 @@ function mountShell() {
       </div>
     </div>
 
-    <!-- FLOATING GLASS BOTTOM DOCK (TRUE MULTI-PAGE LINKS) -->
     <nav class="bottom-dock" id="bottomDock" aria-label="Mobile Navigation"></nav>
 
-    <!-- DIGITAL WARRANTY CERTIFICATE & GST BILL MODAL -->
     <div class="modal-backdrop" id="certModal" role="dialog" aria-modal="true" aria-labelledby="certModalTitle">
       <div class="cert-modal" id="certModalContent"></div>
     </div>
 
-    <!-- CONFIRMATION MODAL (DATA ERASURE) -->
     <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true">
       <div class="cert-modal" style="max-width:420px;padding:24px;">
         <div class="eyebrow" style="color:var(--rose);margin-bottom:6px;">DPDP Act 2023 &bull; Right to Erasure</div>
@@ -629,7 +612,6 @@ function mountShell() {
       </div>
     </div>
 
-    <!-- PWA INSTALL GUIDE MODAL -->
     <div class="modal-backdrop" id="installGuideModal" role="dialog" aria-modal="true">
       <div class="cert-modal" style="max-width:430px;padding:24px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
@@ -647,11 +629,9 @@ function mountShell() {
       </div>
     </div>
 
-    <!-- TOAST -->
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   `;
 
-  // Populate sidebar & floating bottom dock with true <a href="..."> links
   const careItems = ROUTES.filter(r => r.group === 'care');
   const workItems = ROUTES.filter(r => r.group === 'work');
   document.getElementById('sidebarNav').innerHTML = `
@@ -679,7 +659,6 @@ function mountShell() {
     </a>
   `).join('');
 
-  // Backdrop click handlers
   document.getElementById('certModal').addEventListener('click', (e) => {
     if (e.target.id === 'certModal') closeCertificate();
   });
@@ -694,6 +673,18 @@ function mountShell() {
       closeCertificate();
       closeConfirmModal();
       closeInstallGuideModal();
+    }
+    if (CURRENT_PAGE === 'calculator' && state.calcMode === 'standard') {
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (/^[0-9.]$/.test(e.key)) calcInput(e.key);
+      else if (e.key === '+') calcInput('+');
+      else if (e.key === '-') calcInput('-');
+      else if (e.key === '*') calcInput('×');
+      else if (e.key === '/') { e.preventDefault(); calcInput('÷'); }
+      else if (e.key === '%') calcInput('%');
+      else if (e.key === 'Enter' || e.key === '=') { e.preventDefault(); calcInput('='); }
+      else if (e.key === 'Backspace') calcInput('DEL');
     }
   });
 }
@@ -800,7 +791,7 @@ function renderHome() {
               <span class="badge-dot"></span> ${pm.statusLabel}
             </span>
           </div>
-          ${renderCountdownRing(pm.remainingDays, pm.totalDays, pm.strokeColor, 102, 7)}
+          ${renderCountdownRing(pm.remainingDays, pm.totalDays, pm.strokeColor, 98, 7)}
         </div>
         <a href="warranty.html" class="spotlight-footer">
           <span>Inspect Decreasing Day-by-Day Graph</span>
@@ -846,8 +837,8 @@ function renderHome() {
         </a>
       </div>
 
-      <div class="card" style="margin-top:14px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
-        <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+      <div class="card" style="margin-top:14px;padding:15px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <div style="display:flex;align-items:center;gap:11px;min-width:0;">
           <span class="icon-badge" style="background:var(--emerald-soft);color:var(--emerald);">${ICONS.warranty}</span>
           <div style="min-width:0;">
             <div style="font-size:13px;font-weight:700;">DPDP Act 2023 Compliant</div>
@@ -861,8 +852,11 @@ function renderHome() {
 }
 
 /* =========================================================================
-   PAGE 2: ACCOUNT & WARRANTY DASHBOARD
+   PAGE 2: ACCOUNT & WARRANTY DASHBOARD (CRISP ASPECT-RATIO SVG + SMOOTH SCRUB)
    ========================================================================= */
+const CHART_W = 360, CHART_H = 190;
+const CHART_PAD_L = 40, CHART_PAD_R = 14, CHART_PAD_T = 16, CHART_PAD_B = 30;
+
 function selectWarrantyUnit(id) {
   state.selectedUnitId = id;
   chartInspectDay = null;
@@ -879,13 +873,11 @@ function renderWarranty() {
   const inspDateLabel = inspDateObj.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   const isToday = activeDay === m.elapsedDays;
 
-  const W = 600, H = 210;
-  const padL = 44, padR = 18, padT = 18, padB = 34;
-  const plotW = W - padL - padR;
-  const plotH = H - padT - padB;
+  const plotW = CHART_W - CHART_PAD_L - CHART_PAD_R;
+  const plotH = CHART_H - CHART_PAD_T - CHART_PAD_B;
 
-  const xForDay = (day) => padL + (day / Math.max(1, m.totalDays)) * plotW;
-  const yForRem = (rem) => padT + (1 - rem / Math.max(1, m.totalDays)) * plotH;
+  const xForDay = (day) => CHART_PAD_L + (day / Math.max(1, m.totalDays)) * plotW;
+  const yForRem = (rem) => CHART_PAD_T + (1 - rem / Math.max(1, m.totalDays)) * plotH;
 
   const startX = xForDay(0), startY = yForRem(m.totalDays);
   const todayX = xForDay(m.elapsedDays), todayY = yForRem(m.remainingDays);
@@ -921,10 +913,10 @@ function renderWarranty() {
       </div>
 
       <div class="card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
-          <div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+          <div style="min-width:0;">
             <div class="eyebrow mono" style="color:var(--primary);">${escapeHtml(unit.serial)}</div>
-            <h2 style="font-size:19px;font-weight:700;letter-spacing:-0.02em;margin:4px 0 3px;">${escapeHtml(unit.model)}</h2>
+            <h2 style="font-size:18px;font-weight:700;letter-spacing:-0.02em;margin:4px 0 3px;">${escapeHtml(unit.model)}</h2>
             <div style="font-size:12.5px;color:var(--ink-secondary);display:flex;align-items:center;gap:5px;">
               ${ICONS.pin} <span>${escapeHtml(unit.location)}</span>
             </div>
@@ -936,7 +928,7 @@ function renderWarranty() {
 
         <div class="telemetry-layout">
           <div style="display:flex;justify-content:center;">
-            ${renderCountdownRing(m.remainingDays, m.totalDays, m.strokeColor, 148, 9)}
+            ${renderCountdownRing(m.remainingDays, m.totalDays, m.strokeColor, 144, 9)}
           </div>
 
           <div class="spec-grid">
@@ -959,7 +951,7 @@ function renderWarranty() {
           </div>
         </div>
 
-        <div class="dual-actions" style="margin-top:18px;">
+        <div class="dual-actions" style="margin-top:16px;">
           <button class="btn btn-primary" onclick="openCertificate('${unit.id}')">
             ${ICONS.receipt} <span>Digital Bill</span>
           </button>
@@ -973,29 +965,31 @@ function renderWarranty() {
         <div class="chart-header">
           <div>
             <div class="eyebrow" style="color:var(--primary);">1-Day Resolution Telemetry</div>
-            <h3 style="font-size:17px;font-weight:700;margin:3px 0 2px;letter-spacing:-0.015em;">Day-by-Day Decreasing Trajectory</h3>
-            <p style="font-size:12px;color:var(--ink-secondary);margin:0;">Drag or tap anywhere along the curve to inspect exact daily remaining warranty.</p>
+            <h3 style="font-size:16.5px;font-weight:700;margin:3px 0 2px;letter-spacing:-0.015em;">Day-by-Day Decreasing Trajectory</h3>
+            <p style="font-size:12px;color:var(--ink-secondary);margin:0;">Slide finger or tap along the graph to inspect any day.</p>
           </div>
-          ${!isToday ? `<button class="btn btn-soft btn-sm" onclick="resetChartToday()">Reset to Today</button>` : `<span class="badge badge-violet">Today: ${m.remainingDays}d</span>`}
+          <div id="chartResetWrap">
+            ${!isToday ? `<button class="btn btn-soft btn-sm" onclick="resetChartToday()">Reset to Today</button>` : `<span class="badge badge-violet">Today: ${m.remainingDays}d</span>`}
+          </div>
         </div>
 
         <div class="chart-inspector">
           <div>
-            <div class="insp-label">${isToday ? 'Today (Live)' : 'Inspected Date'}</div>
-            <div class="insp-val">${inspDateLabel}</div>
+            <div class="insp-label" id="inspLabel">${isToday ? 'Today (Live)' : 'Inspected'}</div>
+            <div class="insp-val" id="inspDate">${inspDateLabel}</div>
           </div>
           <div>
-            <div class="insp-label">Days Remaining</div>
-            <div class="insp-val" style="color:var(--primary);">${inspRemaining} days</div>
+            <div class="insp-label">Remaining</div>
+            <div class="insp-val" id="inspRem" style="color:var(--primary);">${inspRemaining} days</div>
           </div>
           <div>
-            <div class="insp-label">Coverage Left</div>
-            <div class="insp-val">${Math.round((inspRemaining / m.totalDays) * 100)}%</div>
+            <div class="insp-label">Coverage</div>
+            <div class="insp-val" id="inspPct">${Math.round((inspRemaining / m.totalDays) * 100)}%</div>
           </div>
         </div>
 
-        <div class="chart-stage" id="warrantyChartStage" data-total="${m.totalDays}">
-          <svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Decreasing Warranty Countdown Graph">
+        <div class="chart-stage" id="warrantyChartStage" data-total="${m.totalDays}" data-elapsed="${m.elapsedDays}" data-install="${unit.installDate}">
+          <svg class="chart-svg" id="warrantyChartSvg" viewBox="0 0 ${CHART_W} ${CHART_H}" preserveAspectRatio="xMidYMid meet" aria-label="Decreasing Warranty Countdown Graph">
             <defs>
               <linearGradient id="remFillGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stop-color="var(--primary)" stop-opacity="0.30" />
@@ -1003,33 +997,74 @@ function renderWarranty() {
               </linearGradient>
             </defs>
 
-            <line x1="${padL}" y1="${startY}" x2="${W - padR}" y2="${startY}" stroke="var(--chart-grid)" stroke-dasharray="3 4" />
-            <text x="${padL - 8}" y="${startY + 4}" text-anchor="end" fill="var(--ink-tertiary)" font-size="10.5" font-family="JetBrains Mono, monospace">${m.totalDays}d</text>
+            <line x1="${CHART_PAD_L}" y1="${startY}" x2="${CHART_W - CHART_PAD_R}" y2="${startY}" stroke="var(--chart-grid)" stroke-dasharray="3 4" />
+            <text x="${CHART_PAD_L - 6}" y="${startY + 3}" text-anchor="end" fill="var(--ink-tertiary)" font-size="9.5" font-family="JetBrains Mono, monospace">${m.totalDays}d</text>
 
-            <line x1="${padL}" y1="${midY}" x2="${W - padR}" y2="${midY}" stroke="var(--chart-grid)" stroke-dasharray="3 4" />
-            <text x="${padL - 8}" y="${midY + 4}" text-anchor="end" fill="var(--ink-tertiary)" font-size="10.5" font-family="JetBrains Mono, monospace">${midDays}d</text>
+            <line x1="${CHART_PAD_L}" y1="${midY}" x2="${CHART_W - CHART_PAD_R}" y2="${midY}" stroke="var(--chart-grid)" stroke-dasharray="3 4" />
+            <text x="${CHART_PAD_L - 6}" y="${midY + 3}" text-anchor="end" fill="var(--ink-tertiary)" font-size="9.5" font-family="JetBrains Mono, monospace">${midDays}d</text>
 
-            <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="var(--border-strong)" />
-            <text x="${padL - 8}" y="${baseY + 4}" text-anchor="end" fill="var(--ink-tertiary)" font-size="10.5" font-family="JetBrains Mono, monospace">0d</text>
+            <line x1="${CHART_PAD_L}" y1="${baseY}" x2="${CHART_W - CHART_PAD_R}" y2="${baseY}" stroke="var(--border-strong)" />
+            <text x="${CHART_PAD_L - 6}" y="${baseY + 3}" text-anchor="end" fill="var(--ink-tertiary)" font-size="9.5" font-family="JetBrains Mono, monospace">0d</text>
 
             <path d="M ${todayX} ${todayY} L ${endX} ${endY} L ${todayX} ${baseY} Z" fill="url(#remFillGrad)" />
-            <line x1="${startX}" y1="${startY}" x2="${todayX}" y2="${todayY}" stroke="var(--ink-tertiary)" stroke-width="2.2" stroke-dasharray="5 5" opacity="0.6" />
-            <line x1="${todayX}" y1="${todayY}" x2="${endX}" y2="${endY}" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" />
-            <line x1="${inspX}" y1="${padT}" x2="${inspX}" y2="${baseY}" stroke="var(--primary)" stroke-width="1.25" stroke-dasharray="3 3" opacity="0.7" />
+            <line x1="${startX}" y1="${startY}" x2="${todayX}" y2="${todayY}" stroke="var(--ink-tertiary)" stroke-width="2" stroke-dasharray="4 4" opacity="0.6" />
+            <line x1="${todayX}" y1="${todayY}" x2="${endX}" y2="${endY}" stroke="var(--primary)" stroke-width="2.8" stroke-linecap="round" />
 
-            <circle cx="${startX}" cy="${startY}" r="4.5" fill="var(--surface)" stroke="var(--ink-tertiary)" stroke-width="2" />
-            <circle cx="${endX}" cy="${endY}" r="4.5" fill="var(--surface)" stroke="var(--rose)" stroke-width="2" />
-            <circle cx="${todayX}" cy="${todayY}" r="9" fill="var(--primary)" opacity="0.18" />
-            <circle cx="${todayX}" cy="${todayY}" r="5" fill="var(--primary)" stroke="var(--surface)" stroke-width="2" />
-            ${!isToday ? `<circle cx="${inspX}" cy="${inspY}" r="6" fill="var(--surface)" stroke="var(--primary)" stroke-width="2.5" />` : ''}
+            <line id="scrubberLine" x1="${inspX}" y1="${CHART_PAD_T}" x2="${inspX}" y2="${baseY}" stroke="var(--primary)" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.75" />
 
-            <text x="${startX}" y="${H - 8}" text-anchor="start" fill="var(--ink-tertiary)" font-size="10.5" font-family="Plus Jakarta Sans, sans-serif" font-weight="600">Installed ${formatDate(unit.installDate)}</text>
-            <text x="${endX}" y="${H - 8}" text-anchor="end" fill="var(--ink-tertiary)" font-size="10.5" font-family="Plus Jakarta Sans, sans-serif" font-weight="600">Expiry ${formatDate(unit.expiryDate)}</text>
+            <circle cx="${startX}" cy="${startY}" r="3.8" fill="var(--surface)" stroke="var(--ink-tertiary)" stroke-width="1.8" />
+            <circle cx="${endX}" cy="${endY}" r="3.8" fill="var(--surface)" stroke="var(--rose)" stroke-width="1.8" />
+            <circle cx="${todayX}" cy="${todayY}" r="8" fill="var(--primary)" opacity="0.18" />
+            <circle cx="${todayX}" cy="${todayY}" r="4.5" fill="var(--primary)" stroke="var(--surface)" stroke-width="1.8" />
+            <circle id="scrubberDot" cx="${inspX}" cy="${inspY}" r="${isToday ? 0 : 5.5}" fill="var(--surface)" stroke="var(--primary)" stroke-width="2.2" />
+
+            <text x="${startX}" y="${CHART_H - 7}" text-anchor="start" fill="var(--ink-tertiary)" font-size="9.5" font-family="Plus Jakarta Sans, sans-serif" font-weight="600">Installed ${formatDate(unit.installDate)}</text>
+            <text x="${endX}" y="${CHART_H - 7}" text-anchor="end" fill="var(--ink-tertiary)" font-size="9.5" font-family="Plus Jakarta Sans, sans-serif" font-weight="600">Expiry ${formatDate(unit.expiryDate)}</text>
           </svg>
         </div>
       </div>
     </div>
   `;
+}
+
+function updateChartScrubberDOM(day) {
+  const stage = document.getElementById('warrantyChartStage');
+  if (!stage) return;
+  const totalDays = Number(stage.dataset.total || 365);
+  const elapsedDays = Number(stage.dataset.elapsed || 0);
+  const installDate = stage.dataset.install;
+
+  chartInspectDay = day;
+  const rem = Math.max(0, totalDays - day);
+  const pct = Math.round((rem / Math.max(1, totalDays)) * 100);
+  const isToday = day === elapsedDays;
+  const dObj = new Date(parseISO(installDate).getTime() + day * DAY_MS);
+  const dLabel = dObj.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  const plotW = CHART_W - CHART_PAD_L - CHART_PAD_R;
+  const plotH = CHART_H - CHART_PAD_T - CHART_PAD_B;
+  const x = CHART_PAD_L + (day / Math.max(1, totalDays)) * plotW;
+  const y = CHART_PAD_T + (1 - rem / Math.max(1, totalDays)) * plotH;
+
+  const line = document.getElementById('scrubberLine');
+  const dot = document.getElementById('scrubberDot');
+  if (line) { line.setAttribute('x1', x); line.setAttribute('x2', x); }
+  if (dot) { dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('r', isToday ? '0' : '5.5'); }
+
+  const lbl = document.getElementById('inspLabel');
+  const dt = document.getElementById('inspDate');
+  const rm = document.getElementById('inspRem');
+  const pc = document.getElementById('inspPct');
+  const rw = document.getElementById('chartResetWrap');
+  if (lbl) lbl.textContent = isToday ? 'Today (Live)' : 'Inspected';
+  if (dt) dt.textContent = dLabel;
+  if (rm) rm.textContent = `${rem} days`;
+  if (pc) pc.textContent = `${pct}%`;
+  if (rw) {
+    rw.innerHTML = !isToday
+      ? `<button class="btn btn-soft btn-sm" onclick="resetChartToday()">Reset to Today</button>`
+      : `<span class="badge badge-violet">Today: ${totalDays - elapsedDays}d</span>`;
+  }
 }
 
 function bindChartInteraction() {
@@ -1039,30 +1074,29 @@ function bindChartInteraction() {
 
   const handlePointer = (clientX) => {
     const rect = stage.getBoundingClientRect();
-    const padLeftFrac = 44 / 600;
-    const padRightFrac = 18 / 600;
+    const padLeftFrac = CHART_PAD_L / CHART_W;
+    const padRightFrac = CHART_PAD_R / CHART_W;
     const rel = (clientX - rect.left) / rect.width;
     const norm = (rel - padLeftFrac) / (1 - padLeftFrac - padRightFrac);
     const clamped = Math.max(0, Math.min(1, norm));
     const day = Math.round(clamped * totalDays);
-    if (day !== chartInspectDay) {
-      chartInspectDay = day;
-      render();
-    }
+    updateChartScrubberDOM(day);
   };
 
   stage.addEventListener('pointerdown', (e) => {
-    stage.setPointerCapture(e.pointerId);
+    try { stage.setPointerCapture(e.pointerId); } catch {}
     handlePointer(e.clientX);
   });
   stage.addEventListener('pointermove', (e) => {
-    if (e.buttons === 1) handlePointer(e.clientX);
+    if (e.buttons === 1 || e.pointerType === 'touch') handlePointer(e.clientX);
   });
 }
 
 function resetChartToday() {
+  const stage = document.getElementById('warrantyChartStage');
+  const elapsedDays = Number(stage?.dataset.elapsed || 0);
   chartInspectDay = null;
-  render();
+  updateChartScrubberDOM(elapsedDays);
 }
 
 /* =========================================================================
@@ -1114,8 +1148,8 @@ function renderDevices() {
               </div>
 
               <div>
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;font-size:12px;">
-                  <span class="mono" style="color:var(--ink-tertiary);">${escapeHtml(u.serial)}</span>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;font-size:12px;gap:8px;">
+                  <span class="mono" style="color:var(--ink-tertiary);overflow:hidden;text-overflow:ellipsis;">${escapeHtml(u.serial)}</span>
                   <span class="badge ${m.badgeClass}" style="padding:3px 9px;font-size:11px;">
                     <span class="badge-dot"></span> ${m.remainingDays}d left
                   </span>
@@ -1143,15 +1177,15 @@ function renderDevices() {
       const total = u.basePrice * (1 + u.gstRate / 100);
       return `
         <div class="bill-row">
-          <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+          <div style="display:flex;align-items:center;gap:11px;min-width:0;flex:1;">
             <span class="icon-badge">${ICONS.receipt}</span>
             <div style="min-width:0;">
-              <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(u.model)}</div>
-              <div class="mono" style="font-size:11.5px;color:var(--ink-tertiary);margin-top:2px;">${escapeHtml(u.invoiceNo)} &middot; ${formatDate(u.installDate)}</div>
+              <div style="font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(u.model)}</div>
+              <div class="mono" style="font-size:11px;color:var(--ink-tertiary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(u.invoiceNo)} &middot; ${formatDate(u.installDate)}</div>
             </div>
           </div>
           <div style="text-align:right;flex-shrink:0;">
-            <div class="mono" style="font-size:14.5px;font-weight:700;margin-bottom:6px;">${formatINR(total)}</div>
+            <div class="mono" style="font-size:14px;font-weight:700;margin-bottom:6px;">${formatINR(total)}</div>
             <button class="btn btn-soft btn-sm" onclick="openCertificate('${u.id}')">Certificate</button>
           </div>
         </div>
@@ -1193,7 +1227,7 @@ function renderDevices() {
       ${state.tickets.map(t => {
         const bClass = t.status === 'Resolved' ? 'badge-emerald' : t.status === 'Scheduled' ? 'badge-violet' : 'badge-amber';
         return `
-          <div class="card" style="padding:16px;margin-bottom:10px;">
+          <div class="card" style="padding:15px;margin-bottom:10px;">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;">
               <span class="mono" style="font-size:12px;font-weight:700;color:var(--primary);">${escapeHtml(t.id)}</span>
               <span class="badge ${bClass}"><span class="badge-dot"></span> ${escapeHtml(t.status)}</span>
@@ -1276,7 +1310,7 @@ function openCertificate(unitId) {
 
     <div class="cert-body">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;">
-        <div>
+        <div style="min-width:0;">
           <div style="font-size:15px;font-weight:700;">${escapeHtml(u.model)}</div>
           <div style="font-size:12px;color:var(--ink-secondary);">${escapeHtml(state.customer.name)} &middot; ${escapeHtml(state.customer.city)}</div>
         </div>
@@ -1286,7 +1320,7 @@ function openCertificate(unitId) {
       <div class="spec-grid" style="margin-bottom:14px;">
         <div class="spec-tile">
           <div class="spec-k">Serial Number</div>
-          <div class="spec-v" style="font-size:12.5px;">${escapeHtml(u.serial)}</div>
+          <div class="spec-v" style="font-size:12px;">${escapeHtml(u.serial)}</div>
         </div>
         <div class="spec-tile">
           <div class="spec-k">Location</div>
@@ -1294,11 +1328,11 @@ function openCertificate(unitId) {
         </div>
         <div class="spec-tile">
           <div class="spec-k">Installed On</div>
-          <div class="spec-v" style="font-size:12.5px;">${formatDate(u.installDate)}</div>
+          <div class="spec-v" style="font-size:12px;">${formatDate(u.installDate)}</div>
         </div>
         <div class="spec-tile">
           <div class="spec-k">Warranty Expiry</div>
-          <div class="spec-v" style="font-size:12.5px;">${formatDate(u.expiryDate)}</div>
+          <div class="spec-v" style="font-size:12px;">${formatDate(u.expiryDate)}</div>
         </div>
       </div>
 
@@ -1358,7 +1392,7 @@ function downloadReceipt(unitId) {
 }
 
 /* =========================================================================
-   PAGE 4: HISAB-KITAB CALCULATOR
+   PAGE 4: HISAB-KITAB CALCULATOR (VERIFIED MATH & PERCENTAGE LOGIC)
    ========================================================================= */
 function setCalcMode(mode) {
   state.calcMode = mode;
@@ -1366,52 +1400,112 @@ function setCalcMode(mode) {
   render();
 }
 
+function evalSafeArithmetic(exprStr) {
+  const jsExpr = exprStr.replace(/×/g, '*').replace(/÷/g, '/').trim();
+  if (!jsExpr || !/^[0-9+\-*/.()\s]+$/.test(jsExpr)) return { error: 'Invalid expression' };
+  try {
+    const val = Function('"use strict";return (' + jsExpr + ')')();
+    if (val === Infinity || val === -Infinity || Number.isNaN(val)) {
+      return { error: 'Cannot divide by 0' };
+    }
+    return { value: Math.round(val * 10000) / 10000 };
+  } catch {
+    return { error: 'Invalid expression' };
+  }
+}
+
 function calcInput(key) {
   if (key === 'C') {
     state.calcDisplay = '0';
     state.calcExpr = '';
     state.calcJustEvaluated = false;
+    state.calcFreshOperand = true;
   } else if (key === 'DEL') {
     if (state.calcJustEvaluated) {
       state.calcDisplay = '0';
-      state.calcJustEvaluated = false;
-    } else {
-      state.calcDisplay = state.calcDisplay.length > 1 ? state.calcDisplay.slice(0, -1) : '0';
-    }
-  } else if (['+', '-', '×', '÷', '%'].includes(key)) {
-    state.calcExpr = (state.calcJustEvaluated ? state.calcDisplay : (state.calcExpr + state.calcDisplay)) + ' ' + key + ' ';
-    state.calcDisplay = '0';
-    state.calcJustEvaluated = false;
-  } else if (key === '=') {
-    const full = (state.calcExpr + state.calcDisplay).trim();
-    const jsExpr = full.replace(/×/g, '*').replace(/÷/g, '/').replace(/%/g, '/100');
-    try {
-      if (!/^[0-9+\-*/.()\s]+$/.test(jsExpr)) throw new Error();
-      const val = Function('"use strict";return (' + jsExpr + ')')();
-      if (!Number.isFinite(val)) throw new Error();
-      const rounded = Math.round(val * 10000) / 10000;
-      state.tape.unshift({
-        id: 't' + Date.now(),
-        label: 'Standard Calculation',
-        expr: full,
-        result: rounded,
-        time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-      });
-      state.calcExpr = full + ' =';
-      state.calcDisplay = String(rounded);
-      state.calcJustEvaluated = true;
-    } catch {
-      showToast('Invalid expression');
-    }
-  } else {
-    if (state.calcJustEvaluated) {
-      state.calcDisplay = key === '.' ? '0.' : key;
       state.calcExpr = '';
       state.calcJustEvaluated = false;
-    } else if (key === '.' && state.calcDisplay.includes('.')) {
-      return;
+      state.calcFreshOperand = true;
     } else {
-      state.calcDisplay = state.calcDisplay === '0' && key !== '.' ? key : state.calcDisplay + key;
+      state.calcDisplay = state.calcDisplay.length > 1 ? state.calcDisplay.slice(0, -1) : '0';
+      if (state.calcDisplay === '0') state.calcFreshOperand = true;
+    }
+  } else if (key === '%') {
+    const cur = parseFloat(state.calcDisplay) || 0;
+    const trimmed = state.calcExpr.trim();
+    // Smart percentage: "1000 + 18%" -> 18% of 1000 = 180; otherwise cur / 100
+    if ((trimmed.endsWith('+') || trimmed.endsWith('-')) && !state.calcJustEvaluated) {
+      const baseRes = evalSafeArithmetic(trimmed.slice(0, -1));
+      if (!baseRes.error) {
+        state.calcDisplay = String(Math.round((baseRes.value * cur / 100) * 10000) / 10000);
+      } else {
+        state.calcDisplay = String(Math.round((cur / 100) * 10000) / 10000);
+      }
+    } else {
+      state.calcDisplay = String(Math.round((cur / 100) * 10000) / 10000);
+    }
+    state.calcFreshOperand = false;
+    state.calcJustEvaluated = false;
+  } else if (['+', '-', '×', '÷'].includes(key)) {
+    if (state.calcJustEvaluated) {
+      state.calcExpr = state.calcDisplay + ' ' + key + ' ';
+      state.calcDisplay = '0';
+      state.calcJustEvaluated = false;
+      state.calcFreshOperand = true;
+    } else if (state.calcFreshOperand && state.calcExpr.trim().length > 0 && /[+\-×÷]$/.test(state.calcExpr.trim())) {
+      // Replace consecutive trailing operator cleanly
+      state.calcExpr = state.calcExpr.trim().slice(0, -1) + key + ' ';
+    } else {
+      state.calcExpr = state.calcExpr + state.calcDisplay + ' ' + key + ' ';
+      state.calcDisplay = '0';
+      state.calcFreshOperand = true;
+    }
+  } else if (key === '=') {
+    if (state.calcJustEvaluated) return;
+    if (!state.calcExpr.trim()) return;
+    const full = (state.calcExpr + state.calcDisplay).trim();
+    const res = evalSafeArithmetic(full);
+    if (res.error) {
+      showToast(res.error);
+      return;
+    }
+    state.tape.unshift({
+      id: 't' + Date.now(),
+      label: 'Standard Calculation',
+      expr: full,
+      result: res.value,
+      time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    });
+    state.calcExpr = full + ' =';
+    state.calcDisplay = String(res.value);
+    state.calcJustEvaluated = true;
+    state.calcFreshOperand = true;
+  } else {
+    // Digits, '00', or '.'
+    if (state.calcJustEvaluated) {
+      if (key === '.') state.calcDisplay = '0.';
+      else if (key === '00') state.calcDisplay = '0';
+      else state.calcDisplay = key;
+      state.calcExpr = '';
+      state.calcJustEvaluated = false;
+      state.calcFreshOperand = state.calcDisplay === '0';
+    } else if (key === '.') {
+      if (!state.calcDisplay.includes('.')) {
+        state.calcDisplay += '.';
+        state.calcFreshOperand = false;
+      }
+    } else if (key === '00') {
+      if (state.calcDisplay !== '0') {
+        state.calcDisplay += '00';
+      }
+      state.calcFreshOperand = false;
+    } else {
+      if (state.calcDisplay === '0') {
+        state.calcDisplay = key;
+      } else if (state.calcDisplay.length < 15) {
+        state.calcDisplay += key;
+      }
+      state.calcFreshOperand = false;
     }
   }
   saveState();
@@ -1421,22 +1515,25 @@ function calcInput(key) {
 function saveSpecialCalc(mode) {
   let label = '', expr = '', result = 0;
   if (mode === 'gst') {
-    const qty = parseFloat(document.getElementById('cQty')?.value) || 0;
-    const rate = parseFloat(document.getElementById('cRate')?.value) || 0;
-    const gst = parseFloat(document.getElementById('cGst')?.value) || 0;
+    const qty = Math.max(0, parseFloat(document.getElementById('cQty')?.value) || 0);
+    const rate = Math.max(0, parseFloat(document.getElementById('cRate')?.value) || 0);
+    const gst = Math.max(0, parseFloat(document.getElementById('cGst')?.value) || 0);
     const sub = qty * rate;
     result = Math.round((sub + sub * gst / 100) * 100) / 100;
+    if (result <= 0) { showToast('Enter quantity and rate above 0'); return; }
     label = document.getElementById('cGstLabel')?.value.trim() || 'Qty × Rate + GST';
     expr = `${qty} × ${rate} + ${gst}% GST`;
   } else if (mode === 'split') {
-    const total = parseFloat(document.getElementById('cSplitTotal')?.value) || 0;
+    const total = Math.max(0, parseFloat(document.getElementById('cSplitTotal')?.value) || 0);
     const people = Math.max(1, parseInt(document.getElementById('cSplitPeople')?.value, 10) || 1);
     result = Math.round((total / people) * 100) / 100;
+    if (result <= 0) { showToast('Enter a total bill amount above 0'); return; }
     label = `Expense Split (${people} shares)`;
     expr = `${formatINR(total)} ÷ ${people}`;
   } else if (mode === 'margin') {
-    const cost = parseFloat(document.getElementById('cCost')?.value) || 0;
-    const sell = parseFloat(document.getElementById('cSell')?.value) || 0;
+    const cost = Math.max(0, parseFloat(document.getElementById('cCost')?.value) || 0);
+    const sell = Math.max(0, parseFloat(document.getElementById('cSell')?.value) || 0);
+    if (cost === 0 && sell === 0) { showToast('Enter cost and selling price'); return; }
     result = Math.round((sell - cost) * 100) / 100;
     const pct = sell > 0 ? Math.round(((sell - cost) / sell) * 1000) / 10 : 0;
     label = `Net Margin (${pct}%)`;
@@ -1459,6 +1556,7 @@ function recallTape(val) {
   state.calcDisplay = String(val);
   state.calcExpr = '';
   state.calcJustEvaluated = false;
+  state.calcFreshOperand = false;
   saveState();
   render();
   showToast(`Recalled ${val}`);
@@ -1513,20 +1611,20 @@ function renderCalculator() {
           <div class="spec-grid">
             <div>
               <label class="field-label">Quantity</label>
-              <input class="input mono" id="cQty" type="number" value="2" oninput="updateLiveSpecial()" />
+              <input class="input mono" id="cQty" type="number" min="0" value="2" oninput="updateLiveSpecial()" />
             </div>
             <div>
               <label class="field-label">Unit Rate (₹)</label>
-              <input class="input mono" id="cRate" type="number" value="1500" oninput="updateLiveSpecial()" />
+              <input class="input mono" id="cRate" type="number" min="0" value="1500" oninput="updateLiveSpecial()" />
             </div>
           </div>
           <div>
             <label class="field-label">GST Rate (%)</label>
-            <input class="input mono" id="cGst" type="number" value="18" oninput="updateLiveSpecial()" />
+            <input class="input mono" id="cGst" type="number" min="0" value="18" oninput="updateLiveSpecial()" />
           </div>
-          <div class="calc-screen" style="margin:4px 0 0;padding:16px;">
+          <div class="calc-screen" style="margin:4px 0 0;padding:15px;">
             <div class="calc-expr" id="liveGstMeta">Subtotal ₹3,000 + GST ₹540</div>
-            <div class="calc-val" id="liveGstTotal" style="font-size:28px;">₹3,540</div>
+            <div class="calc-val" id="liveGstTotal" style="font-size:26px;">₹3,540</div>
           </div>
           <button class="btn btn-primary" onclick="saveSpecialCalc('gst')">Save to Running Tape</button>
         </div>
@@ -1540,16 +1638,16 @@ function renderCalculator() {
           <div class="spec-grid">
             <div>
               <label class="field-label">Total Bill (₹)</label>
-              <input class="input mono" id="cSplitTotal" type="number" value="12000" oninput="updateLiveSpecial()" />
+              <input class="input mono" id="cSplitTotal" type="number" min="0" value="12000" oninput="updateLiveSpecial()" />
             </div>
             <div>
               <label class="field-label">Flats / People</label>
               <input class="input mono" id="cSplitPeople" type="number" min="1" value="4" oninput="updateLiveSpecial()" />
             </div>
           </div>
-          <div class="calc-screen" style="margin:4px 0 0;padding:16px;">
+          <div class="calc-screen" style="margin:4px 0 0;padding:15px;">
             <div class="calc-expr">Per Share Contribution</div>
-            <div class="calc-val" id="liveSplitTotal" style="font-size:28px;">₹3,000</div>
+            <div class="calc-val" id="liveSplitTotal" style="font-size:26px;">₹3,000</div>
           </div>
           <button class="btn btn-primary" onclick="saveSpecialCalc('split')">Save to Running Tape</button>
         </div>
@@ -1563,16 +1661,16 @@ function renderCalculator() {
           <div class="spec-grid">
             <div>
               <label class="field-label">Cost Price (₹)</label>
-              <input class="input mono" id="cCost" type="number" value="4800" oninput="updateLiveSpecial()" />
+              <input class="input mono" id="cCost" type="number" min="0" value="4800" oninput="updateLiveSpecial()" />
             </div>
             <div>
               <label class="field-label">Selling / Quote (₹)</label>
-              <input class="input mono" id="cSell" type="number" value="6500" oninput="updateLiveSpecial()" />
+              <input class="input mono" id="cSell" type="number" min="0" value="6500" oninput="updateLiveSpecial()" />
             </div>
           </div>
-          <div class="calc-screen" style="margin:4px 0 0;padding:16px;">
+          <div class="calc-screen" style="margin:4px 0 0;padding:15px;">
             <div class="calc-expr" id="liveMarginMeta">Margin: 26.2%</div>
-            <div class="calc-val" id="liveMarginTotal" style="font-size:28px;">₹1,700</div>
+            <div class="calc-val" id="liveMarginTotal" style="font-size:26px;">₹1,700</div>
           </div>
           <button class="btn btn-primary" onclick="saveSpecialCalc('margin')">Save to Running Tape</button>
         </div>
@@ -1589,8 +1687,8 @@ function renderCalculator() {
       </div>
 
       <div class="segmented">
-        <button class="seg-btn ${m === 'standard' ? 'active' : ''}" onclick="setCalcMode('standard')">Standard</button>
-        <button class="seg-btn ${m === 'gst' ? 'active' : ''}" onclick="setCalcMode('gst')">Qty &times; Rate</button>
+        <button class="seg-btn ${m === 'standard' ? 'active' : ''}" onclick="setCalcMode('standard')">Basic</button>
+        <button class="seg-btn ${m === 'gst' ? 'active' : ''}" onclick="setCalcMode('gst')">GST Bill</button>
         <button class="seg-btn ${m === 'split' ? 'active' : ''}" onclick="setCalcMode('split')">Split</button>
         <button class="seg-btn ${m === 'margin' ? 'active' : ''}" onclick="setCalcMode('margin')">Margin</button>
       </div>
@@ -1600,26 +1698,26 @@ function renderCalculator() {
 
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
-            <div>
+            <div style="min-width:0;">
               <div class="eyebrow">Running Tape</div>
-              <div class="mono" style="font-size:18px;font-weight:700;color:var(--primary);margin-top:2px;">Sum: ${formatINR(tapeSum)}</div>
+              <div class="mono" style="font-size:17px;font-weight:700;color:var(--primary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Sum: ${formatINR(tapeSum)}</div>
             </div>
             ${state.tape.length ? `<button class="btn btn-outline btn-sm" onclick="clearTape()">Clear</button>` : ''}
           </div>
 
           ${state.tape.length === 0 ? `
-            <div style="padding:26px 12px;text-align:center;color:var(--ink-tertiary);font-size:13px;">
+            <div style="padding:24px 10px;text-align:center;color:var(--ink-tertiary);font-size:13px;">
               Your saved calculations will appear here. Tap any item to recall it.
             </div>
           ` : state.tape.map(t => `
             <div class="tape-item">
               <button style="text-align:left;flex:1;min-width:0;" onclick="recallTape(${t.result})">
                 <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.label)}</div>
-                <div class="mono" style="font-size:11.5px;color:var(--ink-tertiary);margin-top:2px;">${escapeHtml(t.expr)}</div>
+                <div class="mono" style="font-size:11px;color:var(--ink-tertiary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.expr)}</div>
               </button>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span class="mono" style="font-size:14px;font-weight:700;color:var(--primary);">${formatINR(t.result)}</span>
-                <button style="color:var(--ink-tertiary);padding:6px;" onclick="deleteTape('${t.id}')" aria-label="Delete">${ICONS.trash}</button>
+              <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                <span class="mono" style="font-size:13.5px;font-weight:700;color:var(--primary);">${formatINR(t.result)}</span>
+                <button style="color:var(--ink-tertiary);padding:5px;" onclick="deleteTape('${t.id}')" aria-label="Delete">${ICONS.trash}</button>
               </div>
             </div>
           `).join('')}
@@ -1631,20 +1729,20 @@ function renderCalculator() {
 
 function updateLiveSpecial() {
   if (state.calcMode === 'gst') {
-    const q = parseFloat(document.getElementById('cQty')?.value) || 0;
-    const r = parseFloat(document.getElementById('cRate')?.value) || 0;
-    const g = parseFloat(document.getElementById('cGst')?.value) || 0;
+    const q = Math.max(0, parseFloat(document.getElementById('cQty')?.value) || 0);
+    const r = Math.max(0, parseFloat(document.getElementById('cRate')?.value) || 0);
+    const g = Math.max(0, parseFloat(document.getElementById('cGst')?.value) || 0);
     const sub = q * r;
     const tax = sub * g / 100;
     document.getElementById('liveGstMeta').textContent = `Subtotal ${formatINR(sub)} + GST ${formatINR(tax)}`;
     document.getElementById('liveGstTotal').textContent = formatINR(sub + tax);
   } else if (state.calcMode === 'split') {
-    const tot = parseFloat(document.getElementById('cSplitTotal')?.value) || 0;
+    const tot = Math.max(0, parseFloat(document.getElementById('cSplitTotal')?.value) || 0);
     const ppl = Math.max(1, parseInt(document.getElementById('cSplitPeople')?.value, 10) || 1);
     document.getElementById('liveSplitTotal').textContent = formatINR(tot / ppl);
   } else if (state.calcMode === 'margin') {
-    const c = parseFloat(document.getElementById('cCost')?.value) || 0;
-    const s = parseFloat(document.getElementById('cSell')?.value) || 0;
+    const c = Math.max(0, parseFloat(document.getElementById('cCost')?.value) || 0);
+    const s = Math.max(0, parseFloat(document.getElementById('cSell')?.value) || 0);
     const profit = s - c;
     const pct = s > 0 ? ((profit / s) * 100).toFixed(1) : '0.0';
     document.getElementById('liveMarginMeta').textContent = `Margin: ${pct}%`;
@@ -1653,7 +1751,7 @@ function updateLiveSpecial() {
 }
 
 /* =========================================================================
-   PAGE 5: NOTEPAD & AUTO-SYNC
+   PAGE 5: NOTEPAD & AUTO-SYNC (FOCUS-SAFE LIVE SEARCH)
    ========================================================================= */
 function toggleSyncOption(key) {
   state.sync[key] = !state.sync[key];
@@ -1717,13 +1815,13 @@ function togglePinNote(id) {
   const n = state.notes.find(x => x.id === id);
   if (n) n.pinned = !n.pinned;
   saveState();
-  render();
+  updateNotesList();
 }
 
 function deleteNote(id) {
   state.notes = state.notes.filter(x => x.id !== id);
   saveState();
-  render();
+  updateNotesList();
   showToast('Note deleted');
 }
 
@@ -1743,14 +1841,59 @@ function exportNoteDrive(id) {
   showToast('Note exported for Google Drive');
 }
 
-function renderNotes() {
-  const tags = ['General', 'Maintenance', 'Warranty', 'Expense'];
-  const filterTags = ['All', ...tags];
+function buildNotesListMarkup() {
   const q = (state.noteSearch || '').toLowerCase();
   const filtered = state.notes
     .filter(n => state.noteFilter === 'All' || n.tag === state.noteFilter)
     .filter(n => !q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q))
     .sort((a, b) => Number(b.pinned) - Number(a.pinned));
+
+  if (filtered.length === 0) {
+    return `<div class="card" style="text-align:center;color:var(--ink-tertiary);padding:26px;">No matching notes found.</div>`;
+  }
+
+  return filtered.map(n => `
+    <div class="note-card ${n.pinned ? 'pinned' : ''}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+        <div style="min-width:0;">
+          <span class="badge badge-violet" style="padding:2px 9px;font-size:10.5px;margin-bottom:6px;">${escapeHtml(n.tag)}${n.pinned ? ' &middot; Pinned' : ''}</span>
+          <div style="font-size:15px;font-weight:700;">${escapeHtml(n.title)}</div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0;">
+          <button class="icon-circle-btn" style="width:34px;height:34px;${n.pinned ? 'color:var(--primary);border-color:var(--primary);' : ''}" onclick="togglePinNote('${n.id}')" aria-label="Pin Note">${ICONS.bookmark}</button>
+          <button class="icon-circle-btn" style="width:34px;height:34px;" onclick="deleteNote('${n.id}')" aria-label="Delete Note">${ICONS.trash}</button>
+        </div>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-secondary);margin:8px 0 12px;white-space:pre-wrap;">${escapeHtml(n.body)}</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;">
+        <span class="mono" style="font-size:11px;color:var(--ink-tertiary);">${escapeHtml(n.updatedAt)}</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" onclick="emailNote('${n.id}')">${ICONS.mail} <span>Gmail</span></button>
+          <button class="btn btn-soft btn-sm" onclick="exportNoteDrive('${n.id}')">${ICONS.download} <span>Drive</span></button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function handleNoteSearch(val) {
+  state.noteSearch = val;
+  updateNotesList();
+}
+
+function setNoteFilter(tag) {
+  state.noteFilter = tag;
+  render();
+}
+
+function updateNotesList() {
+  const box = document.getElementById('notesListContainer');
+  if (box) box.innerHTML = buildNotesListMarkup();
+}
+
+function renderNotes() {
+  const tags = ['General', 'Maintenance', 'Warranty', 'Expense'];
+  const filterTags = ['All', ...tags];
 
   return `
     <div class="page-view">
@@ -1816,37 +1959,14 @@ function renderNotes() {
       <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;">
         <div style="position:relative;">
           <span style="position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--ink-tertiary);pointer-events:none;">${ICONS.search}</span>
-          <input class="input" style="padding-left:40px;" placeholder="Search saved notes..." value="${escapeHtml(state.noteSearch)}" oninput="state.noteSearch=this.value;render();" />
+          <input class="input" style="padding-left:40px;" placeholder="Search saved notes..." value="${escapeHtml(state.noteSearch)}" oninput="handleNoteSearch(this.value)" />
         </div>
         <div class="tag-row">
-          ${filterTags.map(t => `<button class="chip-btn ${state.noteFilter === t ? 'active' : ''}" onclick="state.noteFilter='${t}';render();">${t}</button>`).join('')}
+          ${filterTags.map(t => `<button class="chip-btn ${state.noteFilter === t ? 'active' : ''}" onclick="setNoteFilter('${t}')">${t}</button>`).join('')}
         </div>
       </div>
 
-      ${filtered.length === 0 ? `
-        <div class="card" style="text-align:center;color:var(--ink-tertiary);padding:28px;">No matching notes found.</div>
-      ` : filtered.map(n => `
-        <div class="note-card ${n.pinned ? 'pinned' : ''}">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
-            <div>
-              <span class="badge badge-violet" style="padding:2px 9px;font-size:10.5px;margin-bottom:6px;">${escapeHtml(n.tag)}${n.pinned ? ' &middot; Pinned' : ''}</span>
-              <div style="font-size:15px;font-weight:700;">${escapeHtml(n.title)}</div>
-            </div>
-            <div style="display:flex;gap:4px;">
-              <button class="icon-circle-btn" style="width:34px;height:34px;${n.pinned ? 'color:var(--primary);border-color:var(--primary);' : ''}" onclick="togglePinNote('${n.id}')" aria-label="Pin Note">${ICONS.bookmark}</button>
-              <button class="icon-circle-btn" style="width:34px;height:34px;" onclick="deleteNote('${n.id}')" aria-label="Delete Note">${ICONS.trash}</button>
-            </div>
-          </div>
-          <p style="font-size:13.5px;color:var(--ink-secondary);margin:8px 0 12px;white-space:pre-wrap;">${escapeHtml(n.body)}</p>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;">
-            <span class="mono" style="font-size:11px;color:var(--ink-tertiary);">${escapeHtml(n.updatedAt)}</span>
-            <div style="display:flex;gap:8px;">
-              <button class="btn btn-outline btn-sm" onclick="emailNote('${n.id}')">${ICONS.mail} <span>Gmail</span></button>
-              <button class="btn btn-soft btn-sm" onclick="exportNoteDrive('${n.id}')">${ICONS.download} <span>Drive Backup</span></button>
-            </div>
-          </div>
-        </div>
-      `).join('')}
+      <div id="notesListContainer">${buildNotesListMarkup()}</div>
     </div>
   `;
 }
@@ -1962,11 +2082,10 @@ function renderPrivacy() {
         <p class="page-sub">Install the AquaVault PWA app, switch Day &amp; Night themes, and manage your DPDP Act rights.</p>
       </div>
 
-      <!-- PWA APP INSTALL CARD -->
       <div class="card" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
-        <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1;">
           <span class="icon-badge">${ICONS.smartphone}</span>
-          <div>
+          <div style="min-width:0;">
             <div style="font-size:15px;font-weight:700;">AquaVault PWA App</div>
             <div style="font-size:12.5px;color:var(--ink-secondary);">
               ${installed ? 'Installed on this device with offline access.' : 'Install to your home screen for full-screen app experience.'}
@@ -1978,7 +2097,6 @@ function renderPrivacy() {
           : `<button class="btn btn-primary btn-sm" onclick="triggerPWAInstall()">${ICONS.download} <span>Install App</span></button>`}
       </div>
 
-      <!-- APPEARANCE SELECTOR -->
       <div class="card" style="margin-bottom:16px;">
         <div class="eyebrow" style="color:var(--primary);">Signature Theme</div>
         <h2 style="font-size:17px;font-weight:700;margin:4px 0 2px;">Day &amp; Night Appearance</h2>
@@ -1991,10 +2109,10 @@ function renderPrivacy() {
               <span class="swatch-dot" style="background:#6D28D9;"></span>
               <span class="swatch-dot" style="background:#EDE9FE;"></span>
             </div>
-            <div style="font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px;">
+            <div style="font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:6px;">
               ${ICONS.sun} <span>Day Mode</span>
             </div>
-            <div style="font-size:11.5px;color:#5B5578;margin-top:3px;">White &amp; Royal Purple</div>
+            <div style="font-size:11px;color:#5B5578;margin-top:3px;">White &amp; Purple</div>
           </button>
 
           <button class="theme-option night ${state.theme === 'dark' ? 'selected' : ''}" onclick="setThemeDirect('dark')">
@@ -2003,15 +2121,14 @@ function renderPrivacy() {
               <span class="swatch-dot" style="background:#A78BFA;"></span>
               <span class="swatch-dot" style="background:#1B172A;"></span>
             </div>
-            <div style="font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px;">
+            <div style="font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:6px;">
               ${ICONS.moon} <span>Night Mode</span>
             </div>
-            <div style="font-size:11.5px;color:#A8A1C4;margin-top:3px;">Obsidian &amp; Violet</div>
+            <div style="font-size:11px;color:#A8A1C4;margin-top:3px;">Obsidian &amp; Violet</div>
           </button>
         </div>
       </div>
 
-      <!-- DPDP ACT 2023 CONSENT & RIGHTS -->
       <div class="card" style="margin-bottom:16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
           <div>
@@ -2102,7 +2219,6 @@ function render() {
   }
 }
 
-// Boot Sequence
 mountShell();
 applyTheme();
 render();

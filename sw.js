@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aquavault-pwa-v3';
+const CACHE_NAME = 'aquavault-pwa-v4';
 const PRECACHE_ASSETS = [
   './',
   './index.html',
@@ -8,8 +8,8 @@ const PRECACHE_ASSETS = [
   './notes.html',
   './hub.html',
   './privacy.html',
-  './styles.css',
-  './app.js',
+  './styles.css?v=4',
+  './app.js?v=4',
   './manifest.webmanifest',
   './assets/app-icon.jpg',
   './assets/icon-192.png',
@@ -37,28 +37,17 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-
-  // Only cache same-origin requests
   if (url.origin !== self.location.origin) return;
 
-  // Network-first for HTML documents (keeps fresh updates, instant offline fallback)
-  if (event.request.mode === 'navigate' || url.pathname.endsWith('.html')) {
+  // Network-first for HTML, CSS, and JS so updates deploy immediately on GitHub Pages
+  if (
+    event.request.mode === 'navigate' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.js')
+  ) {
     event.respondWith(
       fetch(event.request)
-        .then((res) => {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(event.request, clone));
-          return res;
-        })
-        .catch(() => caches.match(event.request).then((r) => r || caches.match('./index.html')))
-    );
-    return;
-  }
-
-  // Cache-first with background refresh for CSS, JS, and images
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const networkFetch = fetch(event.request)
         .then((res) => {
           if (res && res.status === 200) {
             const clone = res.clone();
@@ -66,8 +55,22 @@ self.addEventListener('fetch', (event) => {
           }
           return res;
         })
-        .catch(() => cached);
-      return cached || networkFetch;
+        .catch(() => caches.match(event.request).then((r) => r || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Cache-first for static image assets
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(event.request).then((res) => {
+        if (res && res.status === 200) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(event.request, clone));
+        }
+        return res;
+      });
     })
   );
 });
