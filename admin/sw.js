@@ -1,9 +1,9 @@
-const ADMIN_CACHE = 'aquavault-admin-v1';
+const ADMIN_CACHE = 'aquavault-admin-v3';
 const ADMIN_ASSETS = [
   './',
   './index.html',
-  './admin.css?v=1',
-  './admin.js?v=1',
+  './admin.css?v=3',
+  './admin.js?v=3',
   './manifest.webmanifest',
   '../assets/icon-192.png',
   '../assets/icon-512.png',
@@ -31,12 +31,19 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (event.request.mode === 'navigate') {
+  if (
+    event.request.mode === 'navigate' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.js')
+  ) {
     event.respondWith(
       fetch(event.request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(ADMIN_CACHE).then((c) => c.put(event.request, copy));
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(ADMIN_CACHE).then((c) => c.put(event.request, copy));
+          }
           return res;
         })
         .catch(() => caches.match(event.request).then((m) => m || caches.match('./index.html')))
@@ -46,16 +53,14 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      const networkFetch = fetch(event.request)
-        .then((res) => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            caches.open(ADMIN_CACHE).then((c) => c.put(event.request, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
+      if (cached) return cached;
+      return fetch(event.request).then((res) => {
+        if (res && res.status === 200) {
+          const copy = res.clone();
+          caches.open(ADMIN_CACHE).then((c) => c.put(event.request, copy));
+        }
+        return res;
+      });
     })
   );
 });

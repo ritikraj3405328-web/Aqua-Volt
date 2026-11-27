@@ -109,7 +109,7 @@ function createDefaultInvoiceDraft() {
     discountPct: 5,
     taxPct: typeof def.gstPercent === 'number' ? def.gstPercent : 18,
     terms: 'Payment due within 14 days. Includes 2-year AquaVault Shield hardware warranty & priority engineer support.',
-    approvedBy: 'Ritik Raj',
+    approvedBy: 'Authorized Signatory',
     items: [
       { id: 'i1', desc: 'AquaVault Pro-X7 Dual Tank Controller', qty: 1, unit: 'Unit', price: 8450 },
       { id: 'i2', desc: 'AquaVault HydroSeal Brass Water Stopper', qty: 1, unit: 'Unit', price: 4950 },
@@ -132,8 +132,13 @@ function ensureInvoiceState() {
       }
     ];
   }
-  if (typeof state.googleSheetWebhook !== 'string') {
-    state.googleSheetWebhook = '';
+  if (typeof state.googleSheetWebhook !== 'string' || !state.googleSheetWebhook) {
+    let hook = '';
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('aquavault_admin_config_v1') : null;
+      hook = raw ? (JSON.parse(raw).invoiceDefaults?.googleSheetWebhook || '') : '';
+    } catch {}
+    state.googleSheetWebhook = hook || '';
   }
   if (!state.invoiceTab) {
     state.invoiceTab = 'studio'; // 'studio' | 'ledger'
@@ -1291,6 +1296,18 @@ function renderInvoicePage() {
           ${ICONS.receipt} <span>Copy Sheet Script</span>
         </button>
       </div>
+      <details style="margin-top:12px;background:var(--surface-subtle);border:1px solid var(--border);border-radius:12px;padding:10px 12px;">
+        <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--primary);">View Google Sheets Apps Script Code (Extensions &rarr; Apps Script)</summary>
+        <pre class="mono" style="margin:8px 0 0;padding:10px;border-radius:10px;background:#0B0914;color:#E2DCFA;font-size:11px;overflow-x:auto;white-space:pre;">function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var d = JSON.parse(e.postData.contents);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["Invoice No","Date","Due Date","Status","Business","Customer","Phone","Email","Items","Subtotal","Discount %","GST %","Grand Total","Payment"]);
+  }
+  sheet.appendRow([d.invoiceNo,d.invoiceDate,d.dueDate,d.status,d.businessName,d.clientName,d.clientPhone,d.clientEmail,d.items,d.subtotal,d.discountPct,d.taxPct,d.grandTotal,d.paymentMethod]);
+  return ContentService.createTextOutput("OK");
+}</pre>
+      </details>
     </div>
   `;
 

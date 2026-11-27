@@ -13,12 +13,7 @@ const ADMIN_CONFIG_KEY = 'aquavault_admin_config_v1';
 const CUSTOMER_STATE_KEY = 'aquavault_luxury_state_v2';
 const ADMIN_THEME_KEY = 'aquavault_admin_theme_v1';
 const ADMIN_AUDIT_KEY = 'aquavault_admin_audit_v1';
-
-const FIREBASE_PROJECT_META = {
-  projectId: 'gen-lang-client-0636612647',
-  databaseId: 'ai-studio-android-aquavaul-1af675cc-528f-49fb-8198-a4ee73f79bed',
-  bootstrapAdminEmail: 'ritikraj3405328@gmail.com'
-};
+const FB_META_KEY = 'aquavault_admin_fb_meta_v1'; // Stores ONLY non-secret Firebase endpoint metadata entered by Admin at runtime; NEVER committed in source code
 
 const ICONS = {
   shield: `<svg class="icon" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.8-3.2 8.9-7.5 10.5-4.3-1.6-7.5-5.7-7.5-10.5V6L12 3z"/><path d="M9 12l2 2 4-4"/></svg>`,
@@ -60,11 +55,14 @@ const ADMIN_TABS = [
 const session = {
   authenticated: false,
   token: null,
+  fbIdToken: null, // In-memory only Firebase Auth ID token (never stored in localStorage)
+  fbUid: null,
+  fbEmailVerified: false,
   lastActivity: Date.now(),
   activeTab: 'dashboard',
   authView: 'login', // 'setup' | 'login' | 'otp' | 'reset_req' | 'reset_otp'
   pendingOtp: null,  // { codeHash, salt, expiresAt, attemptsLeft, purpose: 'login'|'reset', previewCode, deliveryMode }
-  mathQuiz: { a: 1, b: 1, op: '+', answer: 2 },
+  mathQuiz: { a: 2, b: 3, op: '+', answer: 5 },
   ticketFilter: 'All',
   toastTimer: null
 };
@@ -145,29 +143,36 @@ function constantTimeEqual(a, b) {
 }
 
 /* =========================================================================
-   SINGLE-DIGIT ANTI-BOT MATH QUIZ GENERATOR (e.g., 1 + 1, 5 + 3, 8 - 2)
+   SINGLE-DIGIT ANTI-BOT MATH QUIZ GENERATOR (FRESH RANDOM ON EVERY REFRESH)
    ========================================================================= */
-function rollMathQuiz(preferSimpleFirst = false) {
-  if (preferSimpleFirst) {
-    session.mathQuiz = { a: 1, b: 1, op: '+', answer: 2 };
-    return session.mathQuiz;
-  }
+function rollMathQuiz() {
+  let prevSig = '';
+  try { prevSig = sessionStorage.getItem('aquavault_last_math_quiz') || ''; } catch {}
   const arr = new Uint8Array(3);
-  crypto.getRandomValues(arr);
-  const useSub = (arr[0] % 3) === 2;
-  let a = 1 + (arr[1] % 9); // 1..9 single digit
-  let b = 1 + (arr[2] % 9); // 1..9 single digit
-  if (useSub) {
-    if (b > a) { const tmp = a; a = b; b = tmp; }
-    session.mathQuiz = { a, b, op: '-', answer: a - b };
-  } else {
-    session.mathQuiz = { a, b, op: '+', answer: a + b };
+  let next = null;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    crypto.getRandomValues(arr);
+    const useSub = (arr[0] % 3) === 2;
+    let a = 1 + (arr[1] % 9); // 1..9 single digit
+    let b = 1 + (arr[2] % 9); // 1..9 single digit
+    if (useSub) {
+      if (b > a) { const tmp = a; a = b; b = tmp; }
+      next = { a, b, op: '-', answer: a - b };
+    } else {
+      next = { a, b, op: '+', answer: a + b };
+    }
+    const sig = `${next.a}${next.op}${next.b}`;
+    if (sig !== prevSig) {
+      try { sessionStorage.setItem('aquavault_last_math_quiz', sig); } catch {}
+      break;
+    }
   }
+  session.mathQuiz = next;
   return session.mathQuiz;
 }
 
 function refreshMathQuizUI() {
-  rollMathQuiz(false);
+  rollMathQuiz();
   const eq = document.getElementById('mathQuizEquation');
   const inp = document.getElementById('mathQuizAnswer');
   if (eq) eq.textContent = `${session.mathQuiz.a} ${session.mathQuiz.op} ${session.mathQuiz.b} = ?`;
@@ -272,6 +277,7 @@ function loadAdminConfig() {
 function saveAdminConfig(cfg) {
   cfg.updatedAt = new Date().toISOString();
   localStorage.setItem(ADMIN_CONFIG_KEY, JSON.stringify(cfg));
+  syncCloudIfConnected(cfg);
 }
 
 function shiftDaysIso(delta) {
@@ -288,10 +294,10 @@ function loadCustomerState() {
   return {
     theme: 'light',
     customer: {
-      name: 'Aarav Sharma',
-      accountId: 'AQV-2026-8419',
-      email: 'aarav.sharma@gmail.com',
-      city: 'Bengaluru, Karnataka'
+      name: 'Valued Customer',
+      accountId: 'AQV-2026-0001',
+      email: 'customer@example.com',
+      city: 'Bengaluru, India'
     },
     sync: { gmailSync: true, driveAutoSave: true, lastSynced: 'Just now' },
     dpdp: { consentGranted: true, auditTrail: [] },
@@ -372,12 +378,292 @@ setInterval(() => {
 function lockVault(reason = 'Admin Vault Locked') {
   session.authenticated = false;
   session.token = null;
+  session.fbIdToken = null;
+  session.fbUid = null;
   session.pendingOtp = null;
   session.authView = loadVault() ? 'login' : 'setup';
-  rollMathQuiz(false);
+  rollMathQuiz();
   appendAudit('SECURITY_ALERT', reason, 'INFO');
   render();
   showToast(reason);
+}
+
+/* =========================================================================
+   FIREBASE AUTH & FIRESTORE AUTO-SETUP (ZERO SECRETS HARDCODED IN SOURCE)
+   ========================================================================= */
+function loadFbMeta() {
+  try {
+    const raw = localStorage.getItem(FB_META_KEY);
+    return raw ? JSON.parse(raw) : { apiKey: '', projectId: '', databaseId: '(default)', adminEmail: '' };
+  } catch {
+    return { apiKey: '', projectId: '', databaseId: '(default)', adminEmail: '' };
+  }
+}
+
+function saveFbMeta(meta) {
+  localStorage.setItem(FB_META_KEY, JSON.stringify({
+    apiKey: String(meta.apiKey || '').trim(),
+    projectId: String(meta.projectId || '').trim(),
+    databaseId: String(meta.databaseId || '(default)').trim() || '(default)',
+    adminEmail: String(meta.adminEmail || '').trim().toLowerCase()
+  }));
+}
+
+function safePastServerTimestamp() {
+  // 8s buffer avoids client-clock-ahead rejection against Firestore `ts <= request.time`
+  return new Date(Date.now() - 8000).toISOString();
+}
+
+function toFsValue(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  }
+  if (v && v.__serverTimestamp) return { timestampValue: safePastServerTimestamp() };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(toFsValue) } };
+  if (typeof v === 'object') {
+    const fields = {};
+    Object.entries(v).forEach(([k, val]) => { fields[k] = toFsValue(val); });
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(v) };
+}
+
+async function firestoreRestSet(meta, idToken, docPath, payload, immutableCreate = false) {
+  const dbId = encodeURIComponent(meta.databaseId || '(default)');
+  const baseUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(meta.projectId)}/databases/${dbId}/documents/${docPath}`;
+
+  let exists = false;
+  if (!immutableCreate) {
+    const checkRes = await fetch(baseUrl, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${idToken}` }
+    });
+    exists = checkRes.ok;
+  }
+
+  let writePayload = { ...payload };
+  let url = baseUrl;
+  if (exists) {
+    // Preserve original createdAt on update to satisfy `incoming().createdAt == existing().createdAt`
+    delete writePayload.createdAt;
+    const maskParams = Object.keys(writePayload)
+      .map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+      .join('&');
+    if (maskParams) url += `?${maskParams}`;
+  }
+
+  const fields = {};
+  Object.entries(writePayload).forEach(([k, val]) => { fields[k] = toFsValue(val); });
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`
+    },
+    body: JSON.stringify({ fields })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error?.message || `Firestore error (${res.status})`);
+  }
+  return data;
+}
+
+async function fbAuthRequest(apiKey, endpoint, body) {
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/${endpoint}?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error?.message || `Firebase Auth failed (${res.status})`);
+  }
+  return data;
+}
+
+async function runFirebaseAutoSetup(apiKey, projectId, databaseId, email, fbPassword, username) {
+  if (!apiKey || !projectId || !email || !fbPassword) {
+    throw new Error('Enter Firebase Web API Key, Project ID, Admin Email & Firebase Password');
+  }
+  if (fbPassword.length < 8) {
+    throw new Error('Firebase Admin Password must be at least 8 characters');
+  }
+
+  saveFbMeta({ apiKey, projectId, databaseId, adminEmail: email });
+
+  let authRes;
+  let createdNew = false;
+  try {
+    authRes = await fbAuthRequest(apiKey, 'accounts:signInWithPassword', {
+      email,
+      password: fbPassword,
+      returnSecureToken: true
+    });
+  } catch (err) {
+    const code = String(err.message || '');
+    if (code.includes('EMAIL_NOT_FOUND') || code.includes('INVALID_LOGIN_CREDENTIALS')) {
+      try {
+        authRes = await fbAuthRequest(apiKey, 'accounts:signUp', {
+          email,
+          password: fbPassword,
+          returnSecureToken: true
+        });
+        createdNew = true;
+      } catch (signUpErr) {
+        throw new Error(signUpErr.message === 'EMAIL_EXISTS' ? 'Wrong Firebase password for this email — use Reset Firebase Password below' : signUpErr.message);
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  const idToken = authRes.idToken;
+  const uid = authRes.localId;
+  session.fbIdToken = idToken;
+  session.fbUid = uid;
+
+  // Check verification state & send email link automatically if unverified
+  const lookup = await fbAuthRequest(apiKey, 'accounts:lookup', { idToken });
+  const userInfo = lookup?.users?.[0] || {};
+  session.fbEmailVerified = Boolean(userInfo.emailVerified);
+
+  if (!session.fbEmailVerified) {
+    await fbAuthRequest(apiKey, 'accounts:sendOobCode', { requestType: 'VERIFY_EMAIL', idToken });
+    appendAudit('SECURITY_ALERT', `Firebase user ${createdNew ? 'created' : 'signed in'}; verification email sent to ${email}`, 'WARNING');
+    return {
+      status: 'verification_sent',
+      uid,
+      createdNew
+    };
+  }
+
+  const meta = loadFbMeta();
+  const cfg = loadAdminConfig();
+  await syncCloudCollections(meta, idToken, uid, username || 'aquavault_admin', email, cfg);
+  appendAudit('CONFIG_UPDATED', `Firebase Admin (${uid}) & Firestore Global Config auto-synced`, 'INFO');
+  return { status: 'synced', uid, createdNew };
+}
+
+async function syncCloudCollections(meta, idToken, uid, username, email, cfg) {
+  const nowTs = { __serverTimestamp: true };
+
+  await firestoreRestSet(meta, idToken, `admins/${uid}`, {
+    uid,
+    email,
+    username: username || 'aquavault_admin',
+    role: 'SUPER_ADMIN',
+    active: true,
+    createdAt: nowTs,
+    updatedAt: nowTs
+  });
+
+  await firestoreRestSet(meta, idToken, 'appConfig/global', {
+    featureWarranty: Boolean(cfg.features.warranty),
+    featureDevices: Boolean(cfg.features.devices),
+    featureCalculator: Boolean(cfg.features.calculator),
+    featureInvoice: Boolean(cfg.features.invoice),
+    featureNotes: Boolean(cfg.features.notes),
+    featureHub: Boolean(cfg.features.hub),
+    featurePrivacy: Boolean(cfg.features.privacy),
+    featurePwaPopup: Boolean(cfg.features.pwaPopup),
+    maintenanceMode: Boolean(cfg.maintenanceMode),
+    maintenanceMessage: String(cfg.maintenanceMessage || ''),
+    announcementActive: Boolean(cfg.announcementActive),
+    announcementText: String(cfg.announcementText || ''),
+    defaultGstPercent: Number(cfg.invoiceDefaults.gstPercent || 18),
+    defaultInvoicePalette: String(cfg.invoiceDefaults.palette || 'violet'),
+    defaultTheme: String(cfg.defaultTheme || 'light'),
+    updatedByUid: uid,
+    createdAt: nowTs,
+    updatedAt: nowTs
+  });
+
+  for (let i = 0; i < cfg.hubApps.length; i++) {
+    const app = cfg.hubApps[i];
+    if (!isValidHttpsUrl(app.url)) continue;
+    await firestoreRestSet(meta, idToken, `hubApps/${app.id}`, {
+      name: app.name,
+      category: app.category,
+      desc: app.desc,
+      url: app.url,
+      icon: app.icon || 'globe',
+      enabled: app.enabled !== false,
+      sortOrder: i,
+      createdAt: nowTs,
+      updatedAt: nowTs
+    });
+  }
+}
+
+async function syncCloudIfConnected(cfg) {
+  if (!session.fbIdToken || !session.fbEmailVerified || !session.fbUid) return;
+  const meta = loadFbMeta();
+  if (!meta.projectId) return;
+  const vault = loadVault();
+  try {
+    await syncCloudCollections(meta, session.fbIdToken, session.fbUid, vault?.username, meta.adminEmail || vault?.email || '', cfg);
+  } catch {}
+}
+
+async function handleFirebaseAutoSetupSubmit(e) {
+  e.preventDefault();
+  const vault = loadVault();
+  const apiKey = (document.getElementById('fbApiKey')?.value || '').trim();
+  const projectId = (document.getElementById('fbProjectId')?.value || '').trim();
+  const databaseId = (document.getElementById('fbDatabaseId')?.value || '(default)').trim();
+  const email = (document.getElementById('fbAdminEmail')?.value || vault?.email || '').trim().toLowerCase();
+  const fbPass = document.getElementById('fbPassword')?.value || '';
+
+  try {
+    showToast('Connecting to Firebase & syncing strict rules collections...');
+    const res = await runFirebaseAutoSetup(apiKey, projectId, databaseId, email, fbPass, vault?.username);
+    render();
+    if (res.status === 'verification_sent') {
+      showToast('Firebase account ready! Verification link sent to your email — click it, then tap Sync.');
+    } else {
+      showToast('Firebase Admin, App Config & Hub Apps automatically synced!');
+    }
+  } catch (err) {
+    showToast(`Firebase Error: ${err.message}`);
+  }
+}
+
+async function handleFirebasePasswordChange() {
+  const meta = loadFbMeta();
+  const newPass = document.getElementById('fbNewPassword')?.value || '';
+  if (!session.fbIdToken) return showToast('Sign in to Firebase above first, then set new password');
+  if (newPass.length < 8) return showToast('New Firebase Password must be at least 8 characters');
+  try {
+    const updated = await fbAuthRequest(meta.apiKey, 'accounts:update', {
+      idToken: session.fbIdToken,
+      password: newPass,
+      returnSecureToken: true
+    });
+    session.fbIdToken = updated.idToken;
+    appendAudit('PASSWORD_RESET', 'Firebase Admin password updated via Auth REST API', 'WARNING');
+    showToast('Firebase Admin password changed successfully!');
+  } catch (err) {
+    showToast(`Firebase Password Update Failed: ${err.message}`);
+  }
+}
+
+async function handleFirebaseResetEmail() {
+  const apiKey = (document.getElementById('fbApiKey')?.value || loadFbMeta().apiKey || '').trim();
+  const email = (document.getElementById('fbAdminEmail')?.value || loadFbMeta().adminEmail || loadVault()?.email || '').trim().toLowerCase();
+  if (!apiKey || !email) return showToast('Enter Firebase Web API Key and Admin Email first');
+  try {
+    await fbAuthRequest(apiKey, 'accounts:sendOobCode', {
+      requestType: 'PASSWORD_RESET',
+      email
+    });
+    appendAudit('PASSWORD_RESET', `Official Firebase password reset email sent to ${email}`, 'INFO');
+    showToast(`Official Firebase password reset link sent to ${email}`);
+  } catch (err) {
+    showToast(`Firebase Reset Error: ${err.message}`);
+  }
 }
 
 /* =========================================================================
@@ -463,6 +749,10 @@ async function handleVaultSetupSubmit(e) {
   const password = document.getElementById('setupPassword')?.value || '';
   const confirm = document.getElementById('setupConfirm')?.value || '';
   const relayUrl = (document.getElementById('setupRelayUrl')?.value || '').trim();
+  const fbApiKey = (document.getElementById('setupFbApiKey')?.value || '').trim();
+  const fbProjectId = (document.getElementById('setupFbProjectId')?.value || '').trim();
+  const fbDatabaseId = (document.getElementById('setupFbDatabaseId')?.value || '(default)').trim();
+  const fbPassword = document.getElementById('setupFbPassword')?.value || '';
   const mathAns = (document.getElementById('mathQuizAnswer')?.value || '').trim();
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showToast('Enter a valid Admin email address');
@@ -471,7 +761,7 @@ async function handleVaultSetupSubmit(e) {
   if (password !== confirm) return showToast('Passwords do not match');
   if (relayUrl && !isValidHttpsUrl(relayUrl)) return showToast('Gmail OTP Relay URL must start with https://');
   if (Number(mathAns) !== session.mathQuiz.answer || mathAns === '') {
-    rollMathQuiz(false);
+    rollMathQuiz();
     render();
     return showToast('Incorrect Math Quiz answer — new quiz generated');
   }
@@ -490,7 +780,18 @@ async function handleVaultSetupSubmit(e) {
     updatedAt: new Date().toISOString()
   };
   saveVault(vault);
-  appendAudit('LOGIN_VERIFIED', `Admin Security Vault claimed by ${username} (${email})`, 'INFO');
+  appendAudit('LOGIN_VERIFIED', `Admin Security Vault claimed by ${username}`, 'INFO');
+
+  // Optional immediate Firebase Password & Cloud Auto-Setup during Vault Claim
+  if (fbApiKey && fbProjectId && fbPassword) {
+    try {
+      await runFirebaseAutoSetup(fbApiKey, fbProjectId, fbDatabaseId, email, fbPassword, username);
+    } catch (fbErr) {
+      showToast(`Vault saved; Firebase note: ${fbErr.message}`);
+    }
+  } else if (fbApiKey || fbProjectId) {
+    saveFbMeta({ apiKey: fbApiKey, projectId: fbProjectId, databaseId: fbDatabaseId, adminEmail: email });
+  }
 
   await dispatchEmailOtp(email, username, 'login');
   session.authView = 'otp';
@@ -511,7 +812,7 @@ async function handleLoginStep1Submit(e) {
 
   if (mathAns === '' || Number(mathAns) !== session.mathQuiz.answer) {
     registerFailedAttempt(vault, 'Wrong single-digit math quiz');
-    rollMathQuiz(false);
+    rollMathQuiz();
     render();
     return showToast('Wrong Math Quiz answer! Hacker shield rotated quiz.');
   }
@@ -523,7 +824,7 @@ async function handleLoginStep1Submit(e) {
 
   if (!okUser || !okEmail || !okPass) {
     registerFailedAttempt(vault, `Invalid credentials attempt for "${username || 'blank'}"`);
-    rollMathQuiz(false);
+    rollMathQuiz();
     render();
     return showToast('Invalid Username, Email, or Master Password');
   }
@@ -547,7 +848,7 @@ async function handleVerifyLoginOtp(e) {
   if (Date.now() > otp.expiresAt) {
     session.pendingOtp = null;
     session.authView = 'login';
-    rollMathQuiz(false);
+    rollMathQuiz();
     render();
     return showToast('Email OTP expired — please sign in again');
   }
@@ -562,7 +863,7 @@ async function handleVerifyLoginOtp(e) {
     if (otp.attemptsLeft <= 0) {
       session.pendingOtp = null;
       session.authView = 'login';
-      rollMathQuiz(false);
+      rollMathQuiz();
       render();
       return showToast('OTP invalidated after 3 wrong tries');
     }
@@ -575,7 +876,7 @@ async function handleVerifyLoginOtp(e) {
   session.authenticated = true;
   session.token = randomHex(24);
   session.lastActivity = Date.now();
-  appendAudit('LOGIN_VERIFIED', `4-Factor Admin Login verified (${vault.username} / ${vault.email})`, 'INFO');
+  appendAudit('LOGIN_VERIFIED', `4-Factor Admin Login verified (${vault.username})`, 'INFO');
   render();
   showToast(`Welcome back, ${vault.username}`);
 }
@@ -591,14 +892,14 @@ async function handleResendOtp() {
 function openPasswordResetFlow() {
   session.authView = 'reset_req';
   session.pendingOtp = null;
-  rollMathQuiz(false);
+  rollMathQuiz();
   render();
 }
 
 function backToLoginView() {
   session.authView = loadVault() ? 'login' : 'setup';
   session.pendingOtp = null;
-  rollMathQuiz(false);
+  rollMathQuiz();
   render();
 }
 
@@ -614,14 +915,14 @@ async function handleResetRequestSubmit(e) {
 
   if (mathAns === '' || Number(mathAns) !== session.mathQuiz.answer) {
     registerFailedAttempt(vault, 'Wrong math quiz during password reset');
-    rollMathQuiz(false);
+    rollMathQuiz();
     render();
     return showToast('Wrong Math Quiz answer — new quiz generated');
   }
 
   if (!constantTimeEqual(email, vault.email.toLowerCase()) || !constantTimeEqual(username.toLowerCase(), vault.username.toLowerCase())) {
     registerFailedAttempt(vault, 'Mismatched email/username on password reset');
-    rollMathQuiz(false);
+    rollMathQuiz();
     render();
     return showToast('Email or Username does not match registered Admin Vault');
   }
@@ -641,7 +942,7 @@ async function handleResetConfirmSubmit(e) {
   if (Date.now() > otp.expiresAt) {
     session.pendingOtp = null;
     session.authView = 'reset_req';
-    rollMathQuiz(false);
+    rollMathQuiz();
     render();
     return showToast('Reset OTP expired — request a new one');
   }
@@ -673,8 +974,8 @@ async function handleResetConfirmSubmit(e) {
 
   session.pendingOtp = null;
   session.authView = 'login';
-  rollMathQuiz(false);
-  appendAudit('PASSWORD_RESET', `Master Password successfully reset via Email OTP for ${vault.email}`, 'WARNING');
+  rollMathQuiz();
+  appendAudit('PASSWORD_RESET', 'Master Password successfully reset via Email OTP', 'WARNING');
   render();
   showToast('Master Password updated! Sign in with your new password.');
 }
@@ -978,15 +1279,16 @@ async function saveSecuritySettings(e) {
   showToast('Admin Security Settings saved');
 }
 
-function copyGmailOtpScript() {
-  const snippet = `function doPost(e) {
+function getGmailAppsScriptCode() {
+  return `function doPost(e) {
   var data = JSON.parse(e.postData.contents);
-  var allowedEmail = "${FIREBASE_PROJECT_META.bootstrapAdminEmail}";
-  if (String(data.to).toLowerCase() !== allowedEmail.toLowerCase()) {
+  // Uses the Gmail address of the account that deployed this script (zero email in public code)
+  var ownerEmail = Session.getEffectiveUser().getEmail();
+  if (!ownerEmail || String(data.to).toLowerCase() !== ownerEmail.toLowerCase()) {
     return ContentService.createTextOutput("FORBIDDEN");
   }
   MailApp.sendEmail({
-    to: allowedEmail,
+    to: ownerEmail,
     subject: "[AquaVault Admin] Your 6-Digit OTP: " + data.otp,
     body: "AquaVault Zero-Trust Admin Verification\\n\\n"
       + "Purpose: " + data.purpose + "\\n"
@@ -997,8 +1299,12 @@ function copyGmailOtpScript() {
   });
   return ContentService.createTextOutput("OK");
 }`;
+}
+
+function copyGmailOtpScript() {
+  const snippet = getGmailAppsScriptCode();
   navigator.clipboard?.writeText(snippet).then(
-    () => showToast('Gmail OTP Apps Script copied! Deploy as Web App & paste URL above.'),
+    () => showToast('Google Apps Script copied! Paste at script.google.com, deploy as Web App, and paste URL.'),
     () => showToast('Copy blocked — select script box manually')
   );
 }
@@ -1033,22 +1339,23 @@ function renderAuthViewport() {
   let bodyHtml = '';
 
   if (session.authView === 'setup' || !vault) {
+    const scriptCode = getGmailAppsScriptCode();
     bodyHtml = `
       <div class="security-shield-row">
         <span class="shield-chip">${ic('shield')} First-Run Vault Claim</span>
-        <span class="shield-chip emerald">PBKDF2-SHA256</span>
+        <span class="shield-chip emerald">Zero Secrets in Source Code</span>
         <span class="shield-chip">Email OTP + Math Quiz</span>
       </div>
       <h1 class="auth-title serif">Claim Admin Vault</h1>
-      <p class="auth-sub">Initialize your private AquaVault Admin credentials. Passwords are salted and hashed with PBKDF2-SHA256 and never stored in plaintext.</p>
+      <p class="auth-sub">Set your private Admin Username, Email &amp; Master Password. Nothing is stored in public code—credentials stay PBKDF2-SHA256 salted locally.</p>
       <form onsubmit="handleVaultSetupSubmit(event)">
         <div class="field">
-          <label>Authorized Admin Email (Strict Firebase Rules Owner)</label>
-          <input id="setupEmail" class="input" type="email" value="${esc(FIREBASE_PROJECT_META.bootstrapAdminEmail)}" required />
+          <label>Authorized Admin Email (Private — not saved in public code)</label>
+          <input id="setupEmail" class="input" type="email" placeholder="admin@yourcompany.com" autocomplete="email" required />
         </div>
         <div class="field">
           <label>Admin Username</label>
-          <input id="setupUsername" class="input" type="text" placeholder="e.g. ritik_admin" autocomplete="username" required />
+          <input id="setupUsername" class="input" type="text" placeholder="e.g. aqua_owner" autocomplete="username" required />
         </div>
         <div class="grid-2">
           <div class="field">
@@ -1060,10 +1367,56 @@ function renderAuthViewport() {
             <input id="setupConfirm" class="input" type="password" placeholder="Re-enter password" autocomplete="new-password" required />
           </div>
         </div>
+
         <div class="field">
-          <label>Gmail OTP Apps Script Relay URL (Optional — can add later in Security)</label>
+          <label>Gmail OTP Apps Script Web URL (Optional — paste after deploying script below)</label>
           <input id="setupRelayUrl" class="input mono" type="url" placeholder="https://script.google.com/macros/s/.../exec" />
         </div>
+
+        <details class="setup-details" open>
+          <summary>
+            <span>${ic('mail')} Google Apps Script Code (Copy &amp; Deploy for Real Gmail OTP)</span>
+            <span class="badge badge-purple">Step-by-Step</span>
+          </summary>
+          <ol style="margin:0 0 10px;padding-left:18px;font-size:12px;color:var(--ink-secondary);line-height:1.55;">
+            <li>Open <strong>script.google.com</strong> &rarr; click <strong>New Project</strong>.</li>
+            <li>Click <strong>Copy Script</strong> below and paste it into <code>Code.gs</code>.</li>
+            <li>Click <strong>Deploy &rarr; New deployment &rarr; Web app</strong>, set <strong>Execute as: Me</strong>, <strong>Who has access: Anyone</strong>, authorize Gmail, and paste the <code>/exec</code> Web URL above.</li>
+          </ol>
+          <button type="button" class="btn btn-sm btn-soft btn-full" style="margin-bottom:8px;" onclick="copyGmailOtpScript()">
+            ${ic('check')} 1-Click Copy Google Apps Script Code
+          </button>
+          <div class="code-block mono">${esc(scriptCode)}</div>
+        </details>
+
+        <details class="setup-details">
+          <summary>
+            <span>${ic('key')} Optional: Set Firebase Password &amp; Cloud Auto-Setup</span>
+            <span class="badge badge-emerald">Strict Rules</span>
+          </summary>
+          <p style="margin:0 0 10px;font-size:11.5px;color:var(--ink-secondary);">
+            Enter your Firebase Web API Key &amp; Password to automatically register Firebase Admin auth, verify email, and initialize strict Firestore collections. Zero keys live in public code.
+          </p>
+          <div class="field">
+            <label>Firebase Web API Key</label>
+            <input id="setupFbApiKey" class="input mono" type="password" placeholder="From Firebase Console -> Project Settings" autocomplete="off" />
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label>Firebase Project ID</label>
+              <input id="setupFbProjectId" class="input mono" placeholder="your-project-id" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Firestore Database ID</label>
+              <input id="setupFbDatabaseId" class="input mono" value="(default)" autocomplete="off" />
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label>Firebase Admin Password (8+ chars)</label>
+            <input id="setupFbPassword" class="input" type="password" placeholder="Create or enter Firebase password" autocomplete="new-password" />
+          </div>
+        </details>
+
         ${renderMathQuizBlock()}
         <button type="submit" class="btn btn-primary btn-full">${ic('lock')} Create Secured Admin Vault</button>
       </form>
@@ -1115,7 +1468,7 @@ function renderAuthViewport() {
       <form onsubmit="handleResetRequestSubmit(event)">
         <div class="field">
           <label>Registered Admin Email</label>
-          <input id="resetEmail" class="input" type="email" placeholder="ritikraj3405328@gmail.com" required />
+          <input id="resetEmail" class="input" type="email" placeholder="admin@yourcompany.com" required />
         </div>
         <div class="field">
           <label>Registered Admin Username</label>
@@ -1179,7 +1532,7 @@ function renderAuthViewport() {
         </div>
         <div class="field">
           <label>Authorized Admin Email</label>
-          <input id="loginEmail" class="input" type="email" placeholder="ritikraj3405328@gmail.com" autocomplete="email" required />
+          <input id="loginEmail" class="input" type="email" placeholder="admin@yourcompany.com" autocomplete="email" required />
         </div>
         <div class="field">
           <label>Master Password</label>
@@ -1735,18 +2088,20 @@ function renderCustomersPanel(cs) {
 
 function renderSecurityPanel(logs) {
   const vault = loadVault() || {};
+  const fbMeta = loadFbMeta();
+  const scriptCode = getGmailAppsScriptCode();
   return `
     <div class="page-head">
-      <div class="eyebrow">Zero-Trust Defense &amp; Firebase Rules</div>
-      <h1 class="page-title serif">Anti-Hacker Security &amp; Rules</h1>
-      <p class="page-desc">Configure real Gmail OTP delivery, rotate your Master Password, review deployed strict Firebase Rules, and inspect intrusion logs.</p>
+      <div class="eyebrow">Zero-Trust Defense &amp; Firebase Auto-Setup</div>
+      <h1 class="page-title serif">Anti-Hacker Security &amp; Firebase</h1>
+      <p class="page-desc">Configure real Gmail OTP delivery, set your Firebase Admin Password to auto-initialize Firestore collections, and inspect security logs. Zero secrets are stored in public source code.</p>
     </div>
 
     <div class="grid-2">
       <div class="card">
         <div class="card-head">
           <div>
-            <h2 class="card-title">Admin Credentials &amp; Gmail OTP Relay</h2>
+            <h2 class="card-title">Admin Vault &amp; Gmail OTP Relay</h2>
             <p class="card-sub">PBKDF2-SHA256 salted hashing (120,000 iterations)</p>
           </div>
           <span class="badge ${vault.otpRelayUrl ? 'badge-emerald' : 'badge-amber'}">${vault.otpRelayUrl ? 'Gmail OTP Live' : 'Setup Mode OTP'}</span>
@@ -1782,42 +2137,79 @@ function renderSecurityPanel(logs) {
         <div class="card-head">
           <div>
             <h2 class="card-title">1-Click Free Gmail OTP Script</h2>
-            <p class="card-sub">Sends real 6-digit OTP emails straight to your Gmail</p>
+            <p class="card-sub">Automatically sends OTP to the deployer's Gmail (zero email in code)</p>
           </div>
           <button class="btn btn-sm btn-soft" onclick="copyGmailOtpScript()">Copy Script</button>
         </div>
         <p style="font-size:12px;color:var(--ink-secondary);margin:0 0 10px;">
-          Open <strong>script.google.com</strong> &rarr; New Project &rarr; Paste script &rarr; Deploy as <strong>Web App (Anyone)</strong> &rarr; Paste URL into the Gmail OTP Relay box on the left.
+          Open <strong>script.google.com</strong> &rarr; New Project &rarr; Paste script &rarr; Deploy as <strong>Web App (Execute as: Me, Access: Anyone)</strong> &rarr; Paste the <code>/exec</code> URL on the left.
         </p>
-        <div class="code-block mono">function doPost(e) {
-  var data = JSON.parse(e.postData.contents);
-  var allowedEmail = "${esc(FIREBASE_PROJECT_META.bootstrapAdminEmail)}";
-  if (String(data.to).toLowerCase() !== allowedEmail.toLowerCase()) {
-    return ContentService.createTextOutput("FORBIDDEN");
-  }
-  MailApp.sendEmail({
-    to: allowedEmail,
-    subject: "[AquaVault Admin] OTP: " + data.otp,
-    body: "Purpose: " + data.purpose + "\\nOTP: " + data.otp
-  });
-  return ContentService.createTextOutput("OK");
-}</div>
+        <div class="code-block mono">${esc(scriptCode)}</div>
       </div>
     </div>
 
     <div class="card">
       <div class="card-head">
         <div>
-          <h2 class="card-title">Deployed Strict Firebase Firestore Security Rules</h2>
-          <p class="card-sub">Project: <span class="mono">${esc(FIREBASE_PROJECT_META.projectId)}</span> &middot; DB: <span class="mono">${esc(FIREBASE_PROJECT_META.databaseId)}</span></p>
+          <h2 class="card-title">Firebase Password Setup &amp; Cloud Auto-Sync</h2>
+          <p class="card-sub">Create/sign-in Firebase Admin Email+Password, verify email, and auto-create <code>/admins</code>, <code>/appConfig/global</code> &amp; <code>/hubApps</code> under Strict Rules</p>
         </div>
-        <span class="badge badge-emerald">${ic('check')} Zero-Trust Rules Deployed</span>
+        <span class="badge ${session.fbIdToken ? (session.fbEmailVerified ? 'badge-emerald' : 'badge-amber') : 'badge-purple'}">
+          ${session.fbIdToken ? (session.fbEmailVerified ? 'Firebase Synced' : 'Verify Email Inbox') : 'Zero-Secret Runtime'}
+        </span>
+      </div>
+      <form onsubmit="handleFirebaseAutoSetupSubmit(event)">
+        <div class="grid-2">
+          <div class="field">
+            <label>Firebase Web API Key (stored only in your browser)</label>
+            <input id="fbApiKey" class="input mono" type="password" value="${esc(fbMeta.apiKey || '')}" placeholder="Paste Web API Key from Firebase Console" required />
+          </div>
+          <div class="field">
+            <label>Firebase Project ID</label>
+            <input id="fbProjectId" class="input mono" value="${esc(fbMeta.projectId || '')}" placeholder="your-firebase-project-id" required />
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Firestore Database ID</label>
+            <input id="fbDatabaseId" class="input mono" value="${esc(fbMeta.databaseId || '(default)')}" placeholder="(default) or named DB id" required />
+          </div>
+          <div class="field">
+            <label>Firebase Admin Email</label>
+            <input id="fbAdminEmail" class="input" type="email" value="${esc(fbMeta.adminEmail || vault.email || '')}" required />
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Set / Enter Firebase Password (8+ chars)</label>
+            <input id="fbPassword" class="input" type="password" placeholder="Creates account if new, or signs in & syncs all" autocomplete="new-password" required />
+          </div>
+          <div class="field">
+            <label>Change Firebase Password (once connected)</label>
+            <input id="fbNewPassword" class="input" type="password" placeholder="Optional new Firebase password" autocomplete="new-password" />
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <button type="submit" class="btn btn-primary">${ic('check')} Auto-Setup Firebase &amp; Sync Everything</button>
+          <button type="button" class="btn btn-soft" onclick="handleFirebasePasswordChange()">${ic('key')} Change Firebase Password</button>
+          <button type="button" class="btn btn-outline" onclick="handleFirebaseResetEmail()">${ic('mail')} Reset Firebase Password via Email</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title">Deployed Strict Firebase Firestore Security Rules</h2>
+          <p class="card-sub">Zero-trust rules enforced server-side on Firebase — safe even if public client code is inspected</p>
+        </div>
+        <span class="badge badge-emerald">${ic('check')} Zero-Trust Rules Active</span>
       </div>
       <div class="security-shield-row" style="margin-bottom:0;">
+        <span class="shield-chip emerald">Zero Secrets in Public Source</span>
         <span class="shield-chip emerald">Default Deny Catch-All</span>
         <span class="shield-chip emerald">email_verified == true Anti-Spoof</span>
         <span class="shield-chip emerald">No Self-Admin Promotion</span>
-        <span class="shield-chip emerald">Strict Schema &amp; Size Bounds</span>
         <span class="shield-chip emerald">HTTPS-Only Hub URLs</span>
         <span class="shield-chip emerald">Immutable Audit Logs</span>
         <span class="shield-chip emerald">Per-User UID Isolation</span>
@@ -1945,7 +2337,7 @@ function render() {
 (function initAdminApp() {
   const vault = loadVault();
   session.authView = vault ? 'login' : 'setup';
-  rollMathQuiz(true); // Starts with clean single-digit 1 + 1 on first screen, rotates randomly thereafter
+  rollMathQuiz(); // Generates a fresh random single-digit math quiz on EVERY page load / refresh
   render();
 
   if ('serviceWorker' in navigator) {

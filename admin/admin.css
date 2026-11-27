@@ -824,6 +824,36 @@ svg.icon {
   white-space: pre;
 }
 
+.setup-details {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 11px 13px;
+  margin-bottom: 14px;
+}
+
+.setup-details summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--primary);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.setup-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.setup-details[open] summary {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
 /* Toast Notification */
 .toast {
   position: fixed;

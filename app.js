@@ -350,7 +350,7 @@ function initPWA() {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
-    if (!isStandalonePWA() && !sessionStorage.getItem(PWA_POPUP_SESSION_KEY)) {
+    if (isFeatureEnabled('pwaPopup') && !isStandalonePWA() && !sessionStorage.getItem(PWA_POPUP_SESSION_KEY)) {
       showTopInstallPopup();
     }
   });
@@ -822,6 +822,7 @@ function renderHome() {
         <h2 class="section-title">Personal Workspace</h2>
       </div>
 
+      ${isFeatureEnabled('invoice') ? `
       <a href="invoice.html" class="invoice-promo-card">
         <div style="display:flex;align-items:center;gap:12px;min-width:0;">
           <span class="icon-badge" style="background:rgba(255,255,255,0.18);color:#FFFFFF;">${ICONS.receipt}</span>
@@ -832,8 +833,10 @@ function renderHome() {
         </div>
         <span style="flex-shrink:0;color:#FFFFFF;">${ICONS.arrowRight}</span>
       </a>
+      ` : ''}
 
       <div class="bento-grid">
+        ${isFeatureEnabled('calculator') ? `
         <a href="calculator.html" class="bento-card">
           <span class="icon-badge">${ICONS.calc}</span>
           <div>
@@ -841,7 +844,9 @@ function renderHome() {
             <p class="bento-sub">Standard, GST billing, split &amp; running tape</p>
           </div>
         </a>
+        ` : ''}
 
+        ${isFeatureEnabled('notes') ? `
         <a href="notes.html" class="bento-card">
           <span class="icon-badge">${ICONS.notes}</span>
           <div>
@@ -849,7 +854,9 @@ function renderHome() {
             <p class="bento-sub">${state.notes.length} note(s) &middot; Gmail &amp; Drive backup</p>
           </div>
         </a>
+        ` : ''}
 
+        ${isFeatureEnabled('hub') ? `
         <a href="hub.html" class="bento-card">
           <span class="icon-badge">${ICONS.hub}</span>
           <div>
@@ -857,7 +864,9 @@ function renderHome() {
             <p class="bento-sub">1-click access to brand apps &amp; portals</p>
           </div>
         </a>
+        ` : ''}
 
+        ${isFeatureEnabled('privacy') ? `
         <a href="privacy.html" class="bento-card">
           <span class="icon-badge">${ICONS.privacy}</span>
           <div>
@@ -865,6 +874,7 @@ function renderHome() {
             <p class="bento-sub">Consent controls, JSON export &amp; Night mode</p>
           </div>
         </a>
+        ` : ''}
       </div>
 
       <div class="card" style="margin-top:14px;padding:15px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
