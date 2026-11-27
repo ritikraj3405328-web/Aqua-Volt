@@ -1,0 +1,2032 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="day">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>AquaVault — Water Level Controller &amp; Water Stopper Customer Portal</title>
+  <meta name="description" content="Premium customer portal for AquaVault Water Level Controllers and Water Stoppers featuring live decreasing warranty countdown graphs, digital bills, service desk, Hisab-Kitab calculator, synced notepad, future apps hub, and DPDP Act privacy controls." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #FFFFFF;
+      --bg-secondary: #F8F7FC;
+      --surface: #FFFFFF;
+      --surface-subtle: #F8F7FC;
+      --border: #E6E0F8;
+      --brand: #6D28D9;
+      --brand-accent: #7C3AED;
+      --brand-tint: #EDE9FE;
+      --text-primary: #1E1B4B;
+      --text-secondary: #5B5578;
+      --shadow: 0 10px 30px rgba(109, 40, 217, 0.08);
+      --emerald: #059669;
+      --emerald-bg: #ECFDF5;
+      --amber: #D97706;
+      --amber-bg: #FFFBEB;
+      --rose: #DC2626;
+      --rose-bg: #FEF2F2;
+      --hero-grad: linear-gradient(135deg, #3B0764 0%, #6D28D9 52%, #7C3AED 100%);
+      --nav-bg: rgba(255, 255, 255, 0.92);
+    }
+
+    [data-theme="night"] {
+      --bg-primary: #07070B;
+      --bg-secondary: #0E0D14;
+      --surface: #14121E;
+      --surface-subtle: #0E0D14;
+      --border: #2E244D;
+      --brand: #A78BFA;
+      --brand-accent: #8B5CF6;
+      --brand-tint: #231B3D;
+      --text-primary: #F8FAFC;
+      --text-secondary: #A59EC2;
+      --shadow: 0 14px 36px rgba(139, 92, 246, 0.16);
+      --emerald: #34D399;
+      --emerald-bg: #062C22;
+      --amber: #FBBF24;
+      --amber-bg: #2E1E06;
+      --rose: #F87171;
+      --rose-bg: #310C10;
+      --hero-grad: linear-gradient(135deg, #1E103C 0%, #4C1D95 55%, #6D28D9 100%);
+      --nav-bg: rgba(20, 18, 30, 0.94);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+      transition: background 0.25s ease, color 0.25s ease;
+    }
+
+    .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace; }
+
+    /* Shell Layout */
+    .app-shell {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* Desktop Sidebar */
+    .sidebar {
+      display: none;
+      width: 264px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 20px 14px;
+      flex-direction: column;
+      gap: 6px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+
+    .brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 6px 10px 18px;
+    }
+
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 13px;
+      background: linear-gradient(135deg, #4C1D95, #7C3AED);
+      display: grid;
+      place-items: center;
+      color: #FFFFFF;
+      box-shadow: 0 6px 18px rgba(109, 40, 217, 0.35);
+      flex-shrink: 0;
+    }
+
+    .brand-name { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; color: var(--text-primary); }
+    .brand-sub { font-size: 11px; font-weight: 600; color: var(--brand); letter-spacing: 0.04em; text-transform: uppercase; }
+
+    .nav-btn {
+      width: 100%;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      padding: 11px 13px;
+      border-radius: 13px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      text-align: left;
+    }
+
+    .nav-btn:hover { background: var(--brand-tint); color: var(--brand); }
+    .nav-btn.active {
+      background: var(--brand-tint);
+      color: var(--brand);
+      border-color: rgba(124, 58, 237, 0.28);
+    }
+
+    .main-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding-bottom: 84px;
+    }
+
+    /* Sticky Top Header */
+    .top-header {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: var(--nav-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .header-title { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .header-sub { font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+    .icon-pill-btn {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    .icon-pill-btn:hover, .icon-pill-btn.active {
+      background: var(--brand-tint);
+      color: var(--brand);
+      border-color: var(--brand);
+    }
+
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 38px;
+      padding: 0 13px;
+      border-radius: 999px;
+      border: 1px solid rgba(124, 58, 237, 0.32);
+      background: var(--brand-tint);
+      color: var(--brand);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.2s ease;
+    }
+    .theme-toggle:active { transform: scale(0.96); }
+
+    /* Content Container */
+    .page-container {
+      width: 100%;
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 18px 16px 32px;
+    }
+
+    .page-view { display: none; animation: fadeIn 0.22s ease; }
+    .page-view.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Cards & Primitives */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }
+
+    .hero-card {
+      background: var(--hero-grad);
+      color: #FFFFFF;
+      border: 1px solid rgba(167, 139, 250, 0.35);
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: 0 18px 42px rgba(109, 40, 217, 0.26);
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 18px;
+    }
+
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(167, 139, 250, 0.35), transparent 70%);
+      top: -80px;
+      right: -50px;
+      pointer-events: none;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .pill-emerald { background: var(--emerald-bg); color: var(--emerald); border: 1px solid rgba(5, 150, 105, 0.25); }
+    .pill-amber { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(217, 119, 6, 0.25); }
+    .pill-rose { background: var(--rose-bg); color: var(--rose); border: 1px solid rgba(220, 38, 38, 0.25); }
+    .pill-brand { background: var(--brand-tint); color: var(--brand); border: 1px solid rgba(124, 58, 237, 0.25); }
+
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 11px 16px;
+      min-height: 44px;
+      border-radius: 13px;
+      border: 1px solid transparent;
+      font: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.16s ease;
+      text-decoration: none;
+    }
+    .btn-primary { background: var(--brand); color: #FFFFFF; }
+    [data-theme="night"] .btn-primary { color: #07070B; }
+    .btn-primary:hover { filter: brightness(1.06); transform: translateY(-1px); }
+    .btn-outline { background: var(--surface-subtle); color: var(--text-primary); border-color: var(--border); }
+    .btn-outline:hover { border-color: var(--brand); color: var(--brand); }
+    .btn-danger { background: var(--rose-bg); color: var(--rose); border-color: rgba(220, 38, 38, 0.3); }
+    .btn-sm { min-height: 36px; padding: 7px 12px; font-size: 12.5px; border-radius: 10px; }
+
+    .chips-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+    .chip {
+      padding: 7px 13px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-primary);
+      font: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .chip.active { background: var(--brand); color: #FFFFFF; border-color: var(--brand); }
+    [data-theme="night"] .chip.active { color: #07070B; }
+
+    .input, .select, .textarea {
+      width: 100%;
+      background: var(--surface-subtle);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 11px 14px;
+      font: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.16s ease;
+    }
+    .input:focus, .select:focus, .textarea:focus { border-color: var(--brand); }
+    .textarea { resize: vertical; min-height: 110px; }
+    .field-label { display: block; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px; }
+
+    /* Stat Tile */
+    .stat-box {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      padding: 14px;
+    }
+    .stat-label { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-value { font-size: 22px; font-weight: 800; margin-top: 4px; color: var(--text-primary); }
+
+    /* Progress Bar */
+    .progress-track {
+      height: 10px;
+      border-radius: 999px;
+      background: var(--brand-tint);
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .progress-fill { height: 100%; border-radius: 999px; transition: width 0.35s ease; }
+
+    /* Chart Container */
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 12px 10px;
+      touch-action: pan-y;
+    }
+    .chart-inspector {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--brand-tint);
+      border: 1px solid rgba(124, 58, 237, 0.25);
+      border-radius: 13px;
+      padding: 11px 14px;
+      margin-bottom: 12px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* Calculator Keypad */
+    .calc-display {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      text-align: right;
+      margin-bottom: 14px;
+    }
+    .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .calc-key {
+      height: 54px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface-subtle);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 19px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.1s ease, background 0.15s ease;
+    }
+    .calc-key:active { transform: scale(0.95); }
+    .calc-key.op { background: var(--brand-tint); color: var(--brand); }
+    .calc-key.eq { background: var(--brand); color: #FFFFFF; border-color: var(--brand); }
+    [data-theme="night"] .calc-key.eq { color: #07070B; }
+    .calc-key.clr { background: var(--rose-bg); color: var(--rose); }
+
+    /* Toggle Switch */
+    .switch-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .switch-row:last-child { border-bottom: none; }
+    .switch {
+      position: relative;
+      width: 48px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      left: 3px;
+      top: 3px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      transition: 0.2s;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    }
+    .switch input:checked + .slider { background: var(--brand); }
+    .switch input:checked + .slider::before { transform: translateX(20px); }
+
+    /* Bottom Navigation (Mobile) */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 45;
+      background: var(--nav-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-top: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      padding: 6px 6px calc(8px + env(safe-area-inset-bottom));
+    }
+    .bnav-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      padding: 6px 2px;
+      border-radius: 12px;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .bnav-btn.active { color: var(--brand); background: var(--brand-tint); }
+
+    /* Modal Dialog */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(7, 7, 11, 0.72);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-card {
+      width: 100%;
+      max-width: 560px;
+      max-height: 90vh;
+      overflow-y: auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 22px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 88px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--text-primary);
+      color: var(--bg-primary);
+      padding: 11px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s ease;
+      z-index: 120;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+      max-width: 92vw;
+      text-align: center;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .row-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .stack-sm { display: flex; flex-direction: column; gap: 10px; }
+    .muted { color: var(--text-secondary); font-size: 13px; }
+    .section-h { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 4px; }
+    .divider { height: 1px; background: var(--border); margin: 14px 0; }
+
+    @media (min-width: 860px) {
+      .sidebar { display: flex; }
+      .bottom-nav { display: none; }
+      .mobile-only { display: none !important; }
+      .main-area { padding-bottom: 24px; }
+      .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .toast { bottom: 26px; }
+    }
+
+    @media (max-width: 600px) {
+      .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      .sidebar, .top-header, .bottom-nav, .no-print { display: none !important; }
+      .modal-backdrop { position: static; background: none; display: block !important; padding: 0; }
+      .modal-card { box-shadow: none; border: none; max-width: 100%; max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Desktop Sidebar (All 7 Customer Pages) -->
+    <aside class="sidebar" aria-label="Primary Navigation">
+      <div class="brand-lockup">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+        </div>
+        <div>
+          <div class="brand-name">AquaVault</div>
+          <div class="brand-sub">Customer Portal</div>
+        </div>
+      </div>
+
+      <button class="nav-btn active" data-page="home">🏠 Home Overview</button>
+      <button class="nav-btn" data-page="warranty">📈 Warranty Dashboard</button>
+      <button class="nav-btn" data-page="devices">🔧 Devices, Bills &amp; Service</button>
+      <button class="nav-btn" data-page="calculator">🧮 Hisab-Kitab Calculator</button>
+      <button class="nav-btn" data-page="notepad">📝 Notepad &amp; Auto-Sync</button>
+      <button class="nav-btn" data-page="apps">✨ New Tab (Apps Hub)</button>
+      <button class="nav-btn" data-page="privacy">🛡️ DPDP Privacy &amp; Settings</button>
+
+      <div style="margin-top:auto; padding:12px; border-radius:14px; background:var(--brand-tint); font-size:12px; color:var(--text-secondary);">
+        <strong style="color:var(--brand); display:block; margin-bottom:2px;">Customer Edition</strong>
+        Private water hardware warranty &amp; productivity suite.
+      </div>
+    </aside>
+
+    <!-- Main Column -->
+    <div class="main-area">
+      <!-- Top Bar -->
+      <header class="top-header">
+        <div class="header-left">
+          <div class="brand-icon mobile-only" style="width:36px;height:36px;border-radius:11px;">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+          </div>
+          <div style="min-width:0;">
+            <div id="headerTitle" class="header-title">AquaVault Overview</div>
+            <div class="header-sub">Water Level Controllers &amp; Water Stoppers</div>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button class="icon-pill-btn mobile-only" data-page="apps" title="New Tab — Future Apps &amp; Websites Hub" aria-label="Open New Tab Apps Hub">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+          </button>
+          <button class="icon-pill-btn mobile-only" data-page="privacy" title="DPDP Privacy &amp; Settings" aria-label="Open Privacy and Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </button>
+          <button id="themeToggleBtn" class="theme-toggle" aria-label="Switch Day and Night Mode">
+            <span id="themeToggleIcon">🌙</span>
+            <span id="themeToggleLabel">Night</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="page-container">
+        <!-- ==================== PAGE 1: HOME / OVERVIEW ==================== -->
+        <section id="page-home" class="page-view active">
+          <div id="dpdpHomeBanner" class="card" style="display:none; border-color:rgba(109,40,217,0.35);">
+            <div class="row-between">
+              <div>
+                <div style="font-weight:800; font-size:15px;">🛡️ DPDP Act (2023) Privacy Consent</div>
+                <p class="muted" style="margin-top:4px;">We store your warranty records, service tickets, calculator tape, and personal notes locally and sync only when you enable Google Cloud sync.</p>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" onclick="acceptDpdpConsent(true)">Accept Consent</button>
+                <button class="btn btn-outline btn-sm" onclick="navigateTo('privacy')">Manage Privacy</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="hero-card">
+            <div class="row-between" style="margin-bottom:14px;">
+              <span class="pill mono" style="background:rgba(255,255,255,0.16); color:#EDE9FE; border:1px solid rgba(255,255,255,0.28);">AQV-2026-8419</span>
+              <span class="pill pill-emerald"><span class="pill-dot"></span><span id="homeActiveShieldCount">3 Shielded</span></span>
+            </div>
+            <h1 style="font-size:26px; font-weight:800; letter-spacing:-0.03em; line-height:1.2;">Your Smart Water Protection Hub</h1>
+            <p style="color:#DDD6FE; font-size:14px; margin-top:8px; max-width:600px;">
+              Real-time day-by-day decreasing warranty analytics, verified GST digital bills, one-click technician service, Hisab-Kitab calculator, and auto-synced personal notepad.
+            </p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
+              <button class="btn" style="background:#FFFFFF; color:#4C1D95;" onclick="navigateTo('warranty')">📈 Live Warranty Graph</button>
+              <button class="btn" style="background:rgba(255,255,255,0.16); color:#FFFFFF; border:1px solid rgba(255,255,255,0.3);" onclick="openBillModal(UNITS[0].id)">📄 View Digital Bill</button>
+            </div>
+          </div>
+
+          <div class="grid-2" style="margin-bottom:16px;">
+            <div class="card" style="margin-bottom:0; cursor:pointer;" onclick="navigateTo('devices')">
+              <div class="stat-label">Water Level Controllers</div>
+              <div id="homeControllerCount" class="stat-value mono" style="color:var(--brand); font-size:30px;">2</div>
+              <div class="muted">Overhead &amp; Underground Sump</div>
+            </div>
+            <div class="card" style="margin-bottom:0; cursor:pointer;" onclick="navigateTo('devices')">
+              <div class="stat-label">Water Stoppers</div>
+              <div id="homeStopperCount" class="stat-value mono" style="color:var(--brand-accent); font-size:30px;">2</div>
+              <div class="muted">Motorized &amp; Cutoff Valves</div>
+            </div>
+          </div>
+
+          <div class="card" style="cursor:pointer;" onclick="navigateTo('warranty')">
+            <div class="row-between">
+              <div>
+                <div class="stat-label" style="color:var(--brand);">Primary Warranty Countdown</div>
+                <div id="homePrimaryTitle" style="font-size:17px; font-weight:800; margin-top:2px;">AquaVault Pro-X7 Dual Tank Controller</div>
+                <div id="homePrimaryMeta" class="muted">Overhead Tank (Terrace)</div>
+              </div>
+              <span id="homePrimaryBadge" class="pill pill-emerald"><span class="pill-dot"></span>Active</span>
+            </div>
+            <div class="row-between" style="margin-top:14px; align-items:flex-end;">
+              <div>
+                <span id="homePrimaryDays" class="mono" style="font-size:34px; font-weight:800; color:var(--brand);">241</span>
+                <span class="muted"> days remaining</span>
+              </div>
+              <span style="color:var(--brand); font-weight:700; font-size:13.5px;">Inspect Decreasing Graph →</span>
+            </div>
+          </div>
+
+          <div class="section-h" style="margin:18px 0 10px;">Quick Workspace Access</div>
+          <div class="grid-2">
+            <div class="card" style="margin-bottom:0; cursor:pointer;" onclick="navigateTo('calculator')">
+              <div style="font-size:22px; margin-bottom:6px;">🧮</div>
+              <div style="font-weight:800;">Hisab-Kitab Calculator</div>
+              <div class="muted">Standard, Qty×Rate, Split &amp; Tape</div>
+            </div>
+            <div class="card" style="margin-bottom:0; cursor:pointer;" onclick="navigateTo('notepad')">
+              <div style="font-size:22px; margin-bottom:6px;">📝</div>
+              <div style="font-weight:800;">Notepad &amp; Auto-Sync</div>
+              <div id="homeNotesSub" class="muted">Gmail &amp; Google Drive ready</div>
+            </div>
+            <div class="card" style="margin-bottom:0; cursor:pointer;" onclick="navigateTo('apps')">
+              <div style="font-size:22px; margin-bottom:6px;">✨</div>
+              <div style="font-weight:800;">New Tab (Apps Hub)</div>
+              <div class="muted">1-click brand apps &amp; portals</div>
+            </div>
+            <div class="card" style="margin-bottom:0; cursor:pointer;" onclick="navigateTo('privacy')">
+              <div style="font-size:22px; margin-bottom:6px;">🛡️</div>
+              <div style="font-weight:800;">DPDP Privacy &amp; Theme</div>
+              <div class="muted">Consent, export &amp; Night Mode</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== PAGE 2: ACCOUNT & WARRANTY DASHBOARD ==================== -->
+        <section id="page-warranty" class="page-view">
+          <div class="card">
+            <div class="row-between">
+              <div>
+                <div class="stat-label" style="color:var(--brand);">Verified Customer Account</div>
+                <div style="font-size:19px; font-weight:800; margin-top:2px;" id="acctCustomerName">AquaVault Customer</div>
+                <div class="muted" id="acctCustomerEmail">Connected Customer Portal • Residency Heights, Sector 14</div>
+              </div>
+              <span class="pill pill-brand mono">ID: AQV-2026-8419</span>
+            </div>
+          </div>
+
+          <div style="font-weight:800; font-size:15px;">Select Installed Unit to Inspect Warranty</div>
+          <div id="warrantyUnitChips" class="chips-row"></div>
+
+          <div class="card">
+            <div class="row-between" style="align-items:flex-start;">
+              <div>
+                <div id="wCatLabel" class="stat-label" style="color:var(--brand);">WATER LEVEL CONTROLLER</div>
+                <h2 id="wProdName" style="font-size:20px; font-weight:800; margin-top:2px;"></h2>
+                <div id="wLocSerial" class="muted mono" style="font-size:12.5px; margin-top:3px;"></div>
+              </div>
+              <span id="wStatusPill" class="pill pill-emerald"></span>
+            </div>
+
+            <div class="row-between" style="margin-top:16px; align-items:flex-end;">
+              <div>
+                <div class="stat-label">Live Days Remaining</div>
+                <div id="wDaysRemaining" class="mono" style="font-size:34px; font-weight:800; color:var(--brand);"></div>
+              </div>
+              <div id="wPercentLeft" class="mono muted" style="font-weight:700;"></div>
+            </div>
+
+            <div class="progress-track">
+              <div id="wProgressFill" class="progress-fill" style="width:65%; background:var(--brand);"></div>
+            </div>
+
+            <div class="grid-4" style="margin-top:14px;">
+              <div class="stat-box">
+                <div class="stat-label">Installation Date</div>
+                <div id="wInstallDate" class="mono" style="font-weight:700; font-size:14px; margin-top:4px;"></div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">Expiry Date</div>
+                <div id="wExpiryDate" class="mono" style="font-weight:700; font-size:14px; margin-top:4px;"></div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">Total Warranty</div>
+                <div id="wTotalDays" class="mono" style="font-weight:700; font-size:14px; margin-top:4px;"></div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">Days Elapsed</div>
+                <div id="wElapsedDays" class="mono" style="font-weight:700; font-size:14px; margin-top:4px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Interactive Day-by-Day Decreasing Graph -->
+          <div class="card">
+            <div class="row-between" style="margin-bottom:12px;">
+              <div>
+                <div class="section-h">Day-by-Day Decreasing Warranty Graph</div>
+                <div class="muted">Hover, tap, or slide anywhere on the chart to inspect exact date &amp; remaining days</div>
+              </div>
+              <button class="btn btn-primary btn-sm" id="wOpenBillBtn">📄 Digital Warranty Card &amp; Bill</button>
+            </div>
+
+            <div class="chart-inspector">
+              <div>
+                <div id="chartInspectorTag" class="stat-label" style="color:var(--brand);">TODAY'S POSITION</div>
+                <div id="chartInspectorDate" style="font-weight:800; font-size:15px;"></div>
+              </div>
+              <div style="text-align:right;">
+                <div id="chartInspectorRem" class="mono" style="font-size:20px; font-weight:800; color:var(--brand);"></div>
+                <div id="chartInspectorTotal" class="muted" style="font-size:12px;"></div>
+              </div>
+            </div>
+
+            <div class="chart-wrap">
+              <svg id="warrantySvg" viewBox="0 0 720 240" style="width:100%; height:auto; display:block; cursor:crosshair;"></svg>
+              <div class="row-between muted" style="font-size:11.5px; margin-top:6px;">
+                <span id="chartStartLabel"></span>
+                <span style="color:var(--brand); font-weight:700;">Interactive Countdown Trajectory</span>
+                <span id="chartEndLabel"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== PAGE 3: DEVICES, BILLS & SERVICE ==================== -->
+        <section id="page-devices" class="page-view">
+          <div class="grid-2" style="margin-bottom:14px;">
+            <div class="card" style="margin-bottom:0;">
+              <div class="stat-label">Water Level Controllers</div>
+              <div id="devControllerCount" class="mono" style="font-size:28px; font-weight:800; color:var(--brand);">2</div>
+              <div class="muted">Active tank automation controllers</div>
+            </div>
+            <div class="card" style="margin-bottom:0;">
+              <div class="stat-label">Water Stoppers</div>
+              <div id="devStopperCount" class="mono" style="font-size:28px; font-weight:800; color:var(--brand-accent);">2</div>
+              <div class="muted">Auto-cutoff protection valves</div>
+            </div>
+          </div>
+
+          <div class="chips-row">
+            <button class="chip active" data-devtab="units" onclick="switchDevTab('units')">Installed Units</button>
+            <button class="chip" data-devtab="bills" onclick="switchDevTab('bills')">Digital Bills</button>
+            <button class="chip" data-devtab="service" onclick="switchDevTab('service')">One-Click Service</button>
+          </div>
+
+          <div id="devTabUnits"></div>
+          <div id="devTabBills" style="display:none;"></div>
+          <div id="devTabService" style="display:none;">
+            <div id="serviceConfirmBox" class="card" style="display:none; background:var(--emerald-bg); border-color:var(--emerald);">
+              <div style="font-weight:800; color:var(--emerald); font-size:15px;">✅ Service Request Confirmed!</div>
+              <p id="serviceConfirmText" style="font-size:13.5px; margin-top:4px;"></p>
+            </div>
+
+            <div class="card">
+              <div class="section-h">One-Click Service &amp; Support Request</div>
+              <p class="muted" style="margin-bottom:14px;">Log an instant technician inspection or sensor calibration visit for your installed unit.</p>
+              <div class="stack-sm">
+                <div>
+                  <label class="field-label" for="srvUnitSelect">Installed Unit</label>
+                  <select id="srvUnitSelect" class="select"></select>
+                </div>
+                <div class="grid-2">
+                  <div>
+                    <label class="field-label" for="srvCategory">Issue Category</label>
+                    <select id="srvCategory" class="select">
+                      <option>Sensor Calibration</option>
+                      <option>Valve Check</option>
+                      <option>Pump Auto-Cut</option>
+                      <option>Routine Inspection</option>
+                      <option>Wiring / Power</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="field-label" for="srvSlot">Preferred Slot</label>
+                    <select id="srvSlot" class="select">
+                      <option>Morning (9 AM - 12 PM)</option>
+                      <option>Afternoon (12 PM - 4 PM)</option>
+                      <option>Evening (4 PM - 7 PM)</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label class="field-label" for="srvNote">Issue Note</label>
+                  <textarea id="srvNote" class="textarea" placeholder="Describe what you noticed (e.g., auto-cutoff chime rings slightly early)..."></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="submitServiceTicket()">🔧 Submit Service Request</button>
+              </div>
+            </div>
+
+            <div class="section-h" style="margin:14px 0 10px;">Your Logged Service Tickets</div>
+            <div id="serviceTicketsList"></div>
+          </div>
+        </section>
+
+        <!-- ==================== PAGE 4: CALCULATOR (HISAB-KITAB) ==================== -->
+        <section id="page-calculator" class="page-view">
+          <div class="chips-row">
+            <button class="chip active" data-calcmode="STANDARD" onclick="setCalcMode('STANDARD')">Standard</button>
+            <button class="chip" data-calcmode="QTY_RATE" onclick="setCalcMode('QTY_RATE')">Qty × Rate + GST</button>
+            <button class="chip" data-calcmode="SPLIT" onclick="setCalcMode('SPLIT')">Expense Split</button>
+            <button class="chip" data-calcmode="MARGIN" onclick="setCalcMode('MARGIN')">Profit &amp; Margin</button>
+          </div>
+
+          <div class="card">
+            <label class="field-label" for="calcLabel">Hisab Label (optional memo)</label>
+            <input id="calcLabel" class="input" placeholder="e.g., Tank fittings, Plumber bill, Monthly tanker split" style="margin-bottom:14px;" />
+
+            <!-- Standard Mode -->
+            <div id="calcPanelStandard">
+              <div class="calc-display">
+                <div id="calcExpr" class="mono muted" style="min-height:20px; font-size:14px;">0</div>
+                <div id="calcResult" class="mono" style="font-size:32px; font-weight:800; color:var(--text-primary);">0</div>
+              </div>
+              <div class="calc-grid">
+                <button class="calc-key clr" onclick="calcClear()">C</button>
+                <button class="calc-key clr" onclick="calcBack()">⌫</button>
+                <button class="calc-key op" onclick="calcAppend('/100')">%</button>
+                <button class="calc-key op" onclick="calcAppend('÷')">÷</button>
+                <button class="calc-key" onclick="calcAppend('7')">7</button>
+                <button class="calc-key" onclick="calcAppend('8')">8</button>
+                <button class="calc-key" onclick="calcAppend('9')">9</button>
+                <button class="calc-key op" onclick="calcAppend('×')">×</button>
+                <button class="calc-key" onclick="calcAppend('4')">4</button>
+                <button class="calc-key" onclick="calcAppend('5')">5</button>
+                <button class="calc-key" onclick="calcAppend('6')">6</button>
+                <button class="calc-key op" onclick="calcAppend('-')">-</button>
+                <button class="calc-key" onclick="calcAppend('1')">1</button>
+                <button class="calc-key" onclick="calcAppend('2')">2</button>
+                <button class="calc-key" onclick="calcAppend('3')">3</button>
+                <button class="calc-key op" onclick="calcAppend('+')">+</button>
+                <button class="calc-key" onclick="calcAppend('00')">00</button>
+                <button class="calc-key" onclick="calcAppend('0')">0</button>
+                <button class="calc-key" onclick="calcAppend('.')">.</button>
+                <button class="calc-key eq" onclick="calcEquals()">=</button>
+              </div>
+            </div>
+
+            <!-- Qty x Rate Mode -->
+            <div id="calcPanelQtyRate" style="display:none;">
+              <div class="grid-3">
+                <div><label class="field-label">Quantity</label><input id="qrQty" class="input mono" type="number" value="4" oninput="recalcSpecials()" /></div>
+                <div><label class="field-label">Rate (₹)</label><input id="qrRate" class="input mono" type="number" value="1250" oninput="recalcSpecials()" /></div>
+                <div><label class="field-label">GST (%)</label><input id="qrGst" class="input mono" type="number" value="18" oninput="recalcSpecials()" /></div>
+              </div>
+              <div class="chart-inspector" style="margin-top:14px;">
+                <div id="qrBreakdown" class="muted">Base ₹5,000 + GST ₹900</div>
+                <div id="qrTotal" class="mono" style="font-size:22px; font-weight:800; color:var(--brand);">₹5,900.00</div>
+              </div>
+              <button class="btn btn-primary" style="width:100%;" onclick="saveQtyRateToTape()">Save Qty × Rate to Tape</button>
+            </div>
+
+            <!-- Split Mode -->
+            <div id="calcPanelSplit" style="display:none;">
+              <div class="grid-2">
+                <div><label class="field-label">Total Bill (₹)</label><input id="spTotal" class="input mono" type="number" value="18000" oninput="recalcSpecials()" /></div>
+                <div><label class="field-label">Flats / People</label><input id="spCount" class="input mono" type="number" value="6" oninput="recalcSpecials()" /></div>
+              </div>
+              <div class="chart-inspector" style="margin-top:14px;">
+                <div id="spBreakdown" class="muted">Per flat / person share</div>
+                <div id="spPerShare" class="mono" style="font-size:22px; font-weight:800; color:var(--brand);">₹3,000.00</div>
+              </div>
+              <button class="btn btn-primary" style="width:100%;" onclick="saveSplitToTape()">Save Split to Tape</button>
+            </div>
+
+            <!-- Margin Mode -->
+            <div id="calcPanelMargin" style="display:none;">
+              <div class="grid-2">
+                <div><label class="field-label">Cost Price (₹)</label><input id="mgCost" class="input mono" type="number" value="8500" oninput="recalcSpecials()" /></div>
+                <div><label class="field-label">Selling Price (₹)</label><input id="mgSell" class="input mono" type="number" value="11200" oninput="recalcSpecials()" /></div>
+              </div>
+              <div class="chart-inspector" style="margin-top:14px;">
+                <div id="mgBreakdown" class="muted">Margin 24.1%</div>
+                <div id="mgProfit" class="mono" style="font-size:22px; font-weight:800; color:var(--brand);">+₹2,700.00</div>
+              </div>
+              <button class="btn btn-primary" style="width:100%;" onclick="saveMarginToTape()">Save Margin to Tape</button>
+            </div>
+          </div>
+
+          <div class="row-between" style="margin:14px 0 10px;">
+            <div class="section-h">Hisab-Kitab Running Tape</div>
+            <span id="tapeRunningSum" class="pill pill-brand mono">Sum: 0</span>
+          </div>
+          <div id="calcTapeList"></div>
+        </section>
+
+        <!-- ==================== PAGE 5: NOTEPAD & AUTO-SYNC ==================== -->
+        <section id="page-notepad" class="page-view">
+          <div class="card">
+            <div class="row-between" style="margin-bottom:10px;">
+              <div>
+                <div style="font-weight:800; font-size:16px;">☁️ Gmail Sync &amp; Google Drive Auto-Save</div>
+                <div id="syncAccountEmail" class="muted">Offline-first local persistence active • Connect Google email below</div>
+              </div>
+              <span id="syncStatusPill" class="pill pill-emerald"><span class="pill-dot"></span>Auto-Saved</span>
+            </div>
+
+            <div class="row-between" style="gap:10px; margin-bottom:10px;">
+              <input id="googleEmailInput" class="input" style="flex:1; min-width:200px;" placeholder="Enter your Gmail address for sync &amp; Drive backup" />
+              <button class="btn btn-primary btn-sm" onclick="connectGoogleAccount()">Connect Google</button>
+            </div>
+
+            <div class="switch-row">
+              <div>
+                <div style="font-weight:700; font-size:14px;">Synced with Gmail</div>
+                <div class="muted">Enable 1-click Gmail backup &amp; sync badges on your notes</div>
+              </div>
+              <label class="switch"><input type="checkbox" id="chkGmailSync" checked onchange="saveSyncSettings()" /><span class="slider"></span></label>
+            </div>
+            <div class="switch-row">
+              <div>
+                <div style="font-weight:700; font-size:14px;">Automatic Google Drive Save</div>
+                <div class="muted">Auto-saves drafts continuously + 1-click Drive document export</div>
+              </div>
+              <label class="switch"><input type="checkbox" id="chkDriveSync" checked onchange="saveSyncSettings()" /><span class="slider"></span></label>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row-between" style="margin-bottom:10px;">
+              <div class="section-h" id="noteEditorHeading">Write Personal Note</div>
+              <span id="draftStatus" class="muted" style="font-size:12px;">Draft auto-saves as you type</span>
+            </div>
+            <div class="stack-sm">
+              <div class="grid-2">
+                <input id="noteTitle" class="input" placeholder="Note headline (e.g., Tank Cleaning Schedule)" oninput="autoSaveDraft()" />
+                <select id="noteTag" class="select" onchange="autoSaveDraft()">
+                  <option>Personal</option>
+                  <option>Maintenance</option>
+                  <option>Hisab</option>
+                  <option>Plumbing</option>
+                  <option>Warranty</option>
+                </select>
+              </div>
+              <textarea id="noteContent" class="textarea" placeholder="Write maintenance logs, plumber contacts, or personal reminders freely..." oninput="autoSaveDraft()"></textarea>
+              <div class="row-between">
+                <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:600; cursor:pointer;">
+                  <input type="checkbox" id="notePinned" /> Pin note to top
+                </label>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn btn-outline btn-sm" onclick="clearNoteEditor()">Clear</button>
+                  <button class="btn btn-primary btn-sm" onclick="saveNote()">💾 Save &amp; Sync Note</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row-between" style="margin-bottom:8px;">
+            <input id="noteSearch" class="input" style="max-width:340px;" placeholder="🔍 Search notes or tags..." oninput="renderNotes()" />
+            <div class="chips-row" style="margin:0;">
+              <button class="chip active" data-notefilter="All" onclick="setNoteFilter('All')">All</button>
+              <button class="chip" data-notefilter="Pinned" onclick="setNoteFilter('Pinned')">Pinned</button>
+              <button class="chip" data-notefilter="Maintenance" onclick="setNoteFilter('Maintenance')">Maintenance</button>
+              <button class="chip" data-notefilter="Hisab" onclick="setNoteFilter('Hisab')">Hisab</button>
+            </div>
+          </div>
+
+          <div id="notesList"></div>
+        </section>
+
+        <!-- ==================== PAGE 6: NEW TAB (FUTURE APPS & WEBSITES HUB) ==================== -->
+        <section id="page-apps" class="page-view">
+          <div class="hero-card" style="padding:22px;">
+            <span class="pill" style="background:rgba(255,255,255,0.16); color:#EDE9FE; margin-bottom:10px;">NEW TAB • BRAND ECOSYSTEM</span>
+            <h2 style="font-size:23px; font-weight:800;">Future Apps &amp; Websites Hub</h2>
+            <p style="color:#DDD6FE; font-size:13.5px; margin-top:4px;">Instant 1-click access to every AquaVault companion app, water engineering tool, and official portal.</p>
+          </div>
+
+          <div class="chips-row">
+            <button class="chip active" data-hubfilter="All" onclick="setHubFilter('All')">All</button>
+            <button class="chip" data-hubfilter="New App" onclick="setHubFilter('New App')">New App</button>
+            <button class="chip" data-hubfilter="Website" onclick="setHubFilter('Website')">Website</button>
+            <button class="chip" data-hubfilter="Tool" onclick="setHubFilter('Tool')">Tool</button>
+          </div>
+
+          <div id="appsHubGrid" class="grid-2"></div>
+        </section>
+
+        <!-- ==================== PAGE 7: PRIVACY, DPDP ACT & SETTINGS ==================== -->
+        <section id="page-privacy" class="page-view">
+          <div class="card">
+            <div class="switch-row">
+              <div>
+                <div style="font-weight:800; font-size:16px;" id="settingsThemeLabel">White + Purple Day Mode</div>
+                <div class="muted">1-click switch between White+Purple Day and Black+Purple Night mode</div>
+              </div>
+              <label class="switch"><input type="checkbox" id="settingsDarkSwitch" onchange="toggleTheme()" /><span class="slider"></span></label>
+            </div>
+          </div>
+
+          <div class="card">
+            <div style="font-weight:800; font-size:18px; margin-bottom:4px;">🛡️ DPDP Act (2023) Privacy &amp; Consent Center</div>
+            <div class="muted" style="color:var(--brand); font-weight:700; margin-bottom:14px;">Digital Personal Data Protection Act • Transparent Customer Controls</div>
+
+            <div class="stack-sm">
+              <div class="stat-box">
+                <div style="font-weight:700; font-size:14px;">1. Purpose Limitation</div>
+                <div class="muted" style="margin-top:3px;">Your warranty records, installation dates, service requests, Hisab-Kitab calculations, and personal notes are used exclusively for customer warranty protection and personal productivity.</div>
+              </div>
+              <div class="stat-box">
+                <div style="font-weight:700; font-size:14px;">2. Transparent Storage</div>
+                <div class="muted" style="margin-top:3px;">Data is stored locally in your browser storage for instant offline resilience with optional user-initiated Gmail/Drive export. Zero hidden trackers or admin surveillance.</div>
+              </div>
+              <div class="stat-box">
+                <div style="font-weight:700; font-size:14px;">3. Right to Consent, Export &amp; Erasure</div>
+                <div class="muted" style="margin-top:3px;">You may grant or withdraw consent, download a portable JSON archive, or permanently erase all stored personal data anytime.</div>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="switch-row">
+              <div>
+                <div id="dpdpConsentStatusText" style="font-weight:800; font-size:14.5px;">DPDP Processing Consent</div>
+                <div class="muted">Toggle anytime to grant or withdraw consent</div>
+              </div>
+              <label class="switch"><input type="checkbox" id="dpdpConsentSwitch" onchange="acceptDpdpConsent(this.checked)" /><span class="slider"></span></label>
+            </div>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+              <button class="btn btn-outline" style="flex:1;" onclick="exportCustomerData()">⬇️ Export My Data (JSON)</button>
+              <button class="btn btn-danger" style="flex:1;" onclick="eraseAllCustomerData()">🗑️ Withdraw &amp; Erase Data</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-h" style="margin-bottom:10px;">Privacy &amp; Consent Audit Trail</div>
+            <div id="privacyLogList"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Mobile Bottom Navigation -->
+  <nav class="bottom-nav" aria-label="Mobile Navigation">
+    <button class="bnav-btn active" data-page="home">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="bnav-btn" data-page="warranty">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span>Warranty</span>
+    </button>
+    <button class="bnav-btn" data-page="devices">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      <span>Devices</span>
+    </button>
+    <button class="bnav-btn" data-page="calculator">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="14" x2="8" y2="14.01"/><line x1="12" y1="14" x2="12" y2="14.01"/><line x1="16" y1="14" x2="16" y2="14.01"/></svg>
+      <span>Hisab</span>
+    </button>
+    <button class="bnav-btn" data-page="notepad">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      <span>Notes</span>
+    </button>
+  </nav>
+
+  <!-- Digital Warranty Certificate & GST Bill Modal -->
+  <div id="billModal" class="modal-backdrop" onclick="if(event.target===this) closeBillModal()">
+    <div class="modal-card">
+      <div class="row-between no-print" style="margin-bottom:14px;">
+        <div>
+          <div class="stat-label" style="color:var(--brand);">VERIFIED DIGITAL CERTIFICATE &amp; GST BILL</div>
+          <div id="billModalInv" class="mono" style="font-weight:800; font-size:15px;"></div>
+        </div>
+        <button class="icon-pill-btn" onclick="closeBillModal()" aria-label="Close">✕</button>
+      </div>
+      <div id="billModalBody"></div>
+      <div class="no-print" style="display:flex; gap:10px; margin-top:16px;">
+        <button class="btn btn-primary" style="flex:1;" onclick="window.print()">🖨️ Print / Save PDF</button>
+        <button class="btn btn-outline" style="flex:1;" onclick="downloadBillSummary()">⬇️ Download Summary</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const STORAGE_KEY = 'aquavault_customer_state_v1';
+    const MS_DAY = 86400000;
+    const TODAY_EPOCH = Math.floor(Date.now() / MS_DAY);
+
+    const UNITS = [
+      {
+        id: 'wlc_overhead',
+        type: 'WATER_LEVEL_CONTROLLER',
+        typeLabel: 'Water Level Controller',
+        name: 'AquaVault Pro-X7 Dual Tank Controller',
+        model: 'AV-WLC-X7-PRO',
+        serial: 'AV26-WLC-009481',
+        location: 'Overhead Tank (Terrace)',
+        installEpoch: TODAY_EPOCH - 124,
+        totalDays: 365,
+        unitStatus: 'Active & Optimal',
+        invoice: 'INV-AQV-2026-4412',
+        baseInr: 14500,
+        gstInr: 2610,
+        dealer: 'AquaVault Flagship India Pvt. Ltd.'
+      },
+      {
+        id: 'wlc_sump',
+        type: 'WATER_LEVEL_CONTROLLER',
+        typeLabel: 'Water Level Controller',
+        name: 'AquaVault SumpGuard Dry-Run Controller',
+        model: 'AV-WLC-SG5',
+        serial: 'AV25-WLC-006319',
+        location: 'Underground Sump',
+        installEpoch: TODAY_EPOCH - 332,
+        totalDays: 365,
+        unitStatus: 'Active & Optimal',
+        invoice: 'INV-AQV-2025-8820',
+        baseInr: 11200,
+        gstInr: 2016,
+        dealer: 'AquaVault Flagship India Pvt. Ltd.'
+      },
+      {
+        id: 'ws_mainline',
+        type: 'WATER_STOPPER',
+        typeLabel: 'Water Stopper',
+        name: 'AquaStop Brass Motorized Auto-Stopper',
+        model: 'AV-WS-BM2',
+        serial: 'AV26-WS-014209',
+        location: 'Main Pump Line',
+        installEpoch: TODAY_EPOCH - 86,
+        totalDays: 730,
+        unitStatus: 'Standby Guard',
+        invoice: 'INV-AQV-2026-4413',
+        baseInr: 9800,
+        gstInr: 1764,
+        dealer: 'AquaVault Flagship India Pvt. Ltd.'
+      },
+      {
+        id: 'ws_balcony',
+        type: 'WATER_STOPPER',
+        typeLabel: 'Water Stopper',
+        name: 'AquaStop Zero-Overflow Cutoff Valve',
+        model: 'AV-WS-ZO1',
+        serial: 'AV25-WS-003812',
+        location: 'Utility Balcony Line',
+        installEpoch: TODAY_EPOCH - 385,
+        totalDays: 365,
+        unitStatus: 'Check Recommended',
+        invoice: 'INV-AQV-2025-1904',
+        baseInr: 6400,
+        gstInr: 1152,
+        dealer: 'AquaVault Authorized Partner'
+      }
+    ];
+
+    const APPS_HUB_CATALOG = [
+      { id: 'portal', title: 'AquaVault Official Portal', tag: 'Official Store', badge: 'Website', url: 'https://www.aquavault.in', desc: 'Explore flagship Pro-X7 Water Level Controllers, Brass Motorized Stoppers, and verified spares.' },
+      { id: 'telemetry', title: 'AquaSense Telemetry App', tag: 'Early Access', badge: 'New App', url: 'https://play.google.com/store', desc: 'Upcoming Wi-Fi & LoRa tank level alerts, dry-run motor logs, and smart tank schedules.' },
+      { id: 'volume', title: 'Tank Capacity & Flow Planner', tag: 'Engineering Tool', badge: 'Tool', url: 'https://www.calculator.net/volume-calculator.html', desc: 'Calculate overhead & sump litre capacity, pump fill duration, and motor HP sizing.' },
+      { id: 'guides', title: 'Installation & Care Video Hub', tag: 'HD Guides', badge: 'Website', url: 'https://www.youtube.com/results?search_query=water+level+controller+installation', desc: 'Step-by-step wiring diagrams, SS-316 probe maintenance, and monsoon surge protection.' },
+      { id: 'dealers', title: 'Authorized Service Network', tag: 'Pan-India', badge: 'Tool', url: 'https://maps.google.com/?q=water+level+controller+service+center', desc: 'Find certified AquaVault installation engineers and genuine spare probes near you.' },
+      { id: 'solar', title: 'AquaSolar Smart Controller', tag: 'Coming Next', badge: 'New App', url: 'https://www.google.com/search?q=smart+solar+water+level+controller', desc: 'Next-generation solar pump water automation companion app for farms and estates.' }
+    ];
+
+    const defaultState = {
+      theme: 'day',
+      dpdpAccepted: false,
+      googleEmail: '',
+      gmailSync: true,
+      driveAutoSave: true,
+      selectedUnitId: UNITS[0].id,
+      serviceTickets: [],
+      calcTape: [
+        { id: 't1', label: 'SS-316 Probe Kit + Installation', expr: '2 × ₹1,450 (+18% GST)', value: 3422, formatted: '₹3,422.00', mode: 'QTY_RATE' }
+      ],
+      notes: [
+        {
+          id: 'n_welcome',
+          title: 'Overhead Tank Probe Care Log',
+          content: 'Quarterly SS-316 probe wipe completed. Auto-cutoff verified at 100% tank level with zero overflow.',
+          tag: 'Maintenance',
+          pinned: true,
+          updatedAt: new Date().toLocaleString('en-IN'),
+          syncLabel: 'Auto-Saved to Local & Drive Ready'
+        }
+      ],
+      privacyLogs: [
+        { time: new Date().toLocaleString('en-IN'), action: 'PORTAL INITIALIZED', detail: 'Zero-tracker local customer storage initialized under DPDP Act transparency notice.' }
+      ]
+    };
+
+    let state = loadState();
+    let activeBillUnit = UNITS[0];
+    let editingNoteId = null;
+    let activeNoteFilter = 'All';
+    let activeHubFilter = 'All';
+    let calcExpr = '';
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? { ...defaultState, ...JSON.parse(raw) } : structuredClone(defaultState);
+      } catch {
+        return structuredClone(defaultState);
+      }
+    }
+
+    function persist() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+    }
+
+    function fmtDate(epochDay) {
+      return new Date(epochDay * MS_DAY).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+    }
+    function fmtInr(num) {
+      return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(num);
+    }
+
+    function unitStats(u) {
+      const expiryEpoch = u.installEpoch + u.totalDays;
+      const remaining = Math.max(0, expiryEpoch - TODAY_EPOCH);
+      const elapsed = Math.min(u.totalDays, Math.max(0, TODAY_EPOCH - u.installEpoch));
+      const pct = Math.round((remaining / u.totalDays) * 100);
+      const status = remaining <= 0 ? 'EXPIRED' : remaining <= 45 ? 'EXPIRING_SOON' : 'ACTIVE';
+      return { expiryEpoch, remaining, elapsed, pct, status };
+    }
+
+    function badgeMarkup(status) {
+      if (status === 'ACTIVE') return '<span class="pill-dot"></span>Active Shield';
+      if (status === 'EXPIRING_SOON') return '<span class="pill-dot"></span>Expiring Soon';
+      return '<span class="pill-dot"></span>Expired';
+    }
+    function badgeClass(status) {
+      return status === 'ACTIVE' ? 'pill pill-emerald' : status === 'EXPIRING_SOON' ? 'pill pill-amber' : 'pill pill-rose';
+    }
+
+    // Theme 1-Click Day/Night Mode
+    function applyTheme() {
+      const isNight = state.theme === 'night';
+      document.documentElement.setAttribute('data-theme', state.theme);
+      document.getElementById('themeToggleIcon').textContent = isNight ? '☀️' : '🌙';
+      document.getElementById('themeToggleLabel').textContent = isNight ? 'Day' : 'Night';
+      document.getElementById('settingsDarkSwitch').checked = isNight;
+      document.getElementById('settingsThemeLabel').textContent = isNight ? 'Black + Purple Night Mode' : 'White + Purple Day Mode';
+    }
+
+    function toggleTheme() {
+      state.theme = state.theme === 'night' ? 'day' : 'night';
+      persist();
+      applyTheme();
+      renderWarrantyDashboard();
+      showToast(state.theme === 'night' ? 'Switched to Black + Purple Night Mode' : 'Switched to White + Purple Day Mode');
+    }
+
+    document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
+
+    // Multi-Page Navigation
+    const PAGE_TITLES = {
+      home: 'AquaVault Overview',
+      warranty: 'Warranty Dashboard',
+      devices: 'Devices, Bills & Service',
+      calculator: 'Hisab-Kitab Calculator',
+      notepad: 'Notepad & Auto-Sync',
+      apps: 'New Tab — Apps Hub',
+      privacy: 'DPDP Privacy & Settings'
+    };
+
+    function navigateTo(page) {
+      document.querySelectorAll('.page-view').forEach(s => s.classList.remove('active'));
+      const target = document.getElementById('page-' + page);
+      if (target) target.classList.add('active');
+      document.getElementById('headerTitle').textContent = PAGE_TITLES[page] || 'AquaVault';
+      document.querySelectorAll('[data-page]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-page') === page);
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (page === 'warranty') renderWarrantyDashboard();
+    }
+
+    document.querySelectorAll('[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => navigateTo(btn.getAttribute('data-page')));
+    });
+
+    // Home Rendering
+    function renderHome() {
+      const controllers = UNITS.filter(u => u.type === 'WATER_LEVEL_CONTROLLER').length;
+      const stoppers = UNITS.filter(u => u.type === 'WATER_STOPPER').length;
+      const shielded = UNITS.filter(u => unitStats(u).status !== 'EXPIRED').length;
+      const primary = UNITS[0];
+      const st = unitStats(primary);
+
+      document.getElementById('homeControllerCount').textContent = controllers;
+      document.getElementById('homeStopperCount').textContent = stoppers;
+      document.getElementById('devControllerCount').textContent = controllers;
+      document.getElementById('devStopperCount').textContent = stoppers;
+      document.getElementById('homeActiveShieldCount').textContent = shielded + ' Shielded';
+      document.getElementById('homePrimaryTitle').textContent = primary.name;
+      document.getElementById('homePrimaryMeta').textContent = `${primary.location} • Expires ${fmtDate(st.expiryEpoch)}`;
+      document.getElementById('homePrimaryDays').textContent = st.remaining;
+      const b = document.getElementById('homePrimaryBadge');
+      b.className = badgeClass(st.status);
+      b.innerHTML = badgeMarkup(st.status);
+      document.getElementById('homeNotesSub').textContent = `${state.notes.length} note(s) • Gmail & Drive ready`;
+      document.getElementById('dpdpHomeBanner').style.display = state.dpdpAccepted ? 'none' : 'block';
+    }
+
+    // Warranty Dashboard + Interactive Decreasing SVG Chart
+    function renderWarrantyDashboard() {
+      const chips = document.getElementById('warrantyUnitChips');
+      chips.innerHTML = UNITS.map(u => {
+        const s = unitStats(u);
+        return `<button class="chip ${u.id === state.selectedUnitId ? 'active' : ''}" onclick="selectWarrantyUnit('${u.id}')">${u.location} (${s.remaining}d)</button>`;
+      }).join('');
+
+      const u = UNITS.find(x => x.id === state.selectedUnitId) || UNITS[0];
+      const st = unitStats(u);
+      document.getElementById('wCatLabel').textContent = u.typeLabel.toUpperCase();
+      document.getElementById('wProdName').textContent = u.name;
+      document.getElementById('wLocSerial').textContent = `${u.location} • S/N ${u.serial}`;
+      const pill = document.getElementById('wStatusPill');
+      pill.className = badgeClass(st.status);
+      pill.innerHTML = badgeMarkup(st.status);
+
+      document.getElementById('wDaysRemaining').textContent = `${st.remaining} Days`;
+      document.getElementById('wPercentLeft').textContent = `${st.pct}% remaining`;
+      const accent = st.status === 'ACTIVE' ? 'var(--brand)' : st.status === 'EXPIRING_SOON' ? 'var(--amber)' : 'var(--rose)';
+      document.getElementById('wDaysRemaining').style.color = accent;
+      const fill = document.getElementById('wProgressFill');
+      fill.style.width = `${st.pct}%`;
+      fill.style.background = accent;
+
+      document.getElementById('wInstallDate').textContent = fmtDate(u.installEpoch);
+      document.getElementById('wExpiryDate').textContent = fmtDate(st.expiryEpoch);
+      document.getElementById('wTotalDays').textContent = `${u.totalDays} Days`;
+      document.getElementById('wElapsedDays').textContent = `${st.elapsed} Days`;
+      document.getElementById('wOpenBillBtn').onclick = () => openBillModal(u.id);
+      document.getElementById('chartStartLabel').textContent = 'Start: ' + fmtDate(u.installEpoch);
+      document.getElementById('chartEndLabel').textContent = 'Expiry: ' + fmtDate(st.expiryEpoch);
+
+      drawDecreasingChart(u, st);
+    }
+
+    function selectWarrantyUnit(id) {
+      state.selectedUnitId = id;
+      persist();
+      renderWarrantyDashboard();
+    }
+
+    function drawDecreasingChart(u, st) {
+      const svg = document.getElementById('warrantySvg');
+      const W = 720, H = 240, padL = 32, padR = 24, padT = 20, padB = 26;
+      const cw = W - padL - padR, ch = H - padT - padB;
+      const steps = 36;
+      const pts = [];
+      for (let i = 0; i <= steps; i++) {
+        const dayOffset = Math.round((i / steps) * u.totalDays);
+        const epoch = u.installEpoch + dayOffset;
+        const rem = Math.max(0, u.totalDays - dayOffset);
+        const x = padL + (i / steps) * cw;
+        const y = padT + (1 - rem / u.totalDays) * ch;
+        pts.push({ i, epoch, rem, x, y });
+      }
+      const todayIdx = Math.max(0, pts.reduce((acc, p, idx) => (p.epoch <= TODAY_EPOCH ? idx : acc), 0));
+      const strokeColor = st.status === 'ACTIVE'
+        ? (state.theme === 'night' ? '#A78BFA' : '#6D28D9')
+        : st.status === 'EXPIRING_SOON' ? '#D97706' : '#DC2626';
+      const gridColor = state.theme === 'night' ? '#2E244D' : '#E6E0F8';
+      const surfaceColor = state.theme === 'night' ? '#14121E' : '#FFFFFF';
+
+      const linePath = pts.map((p, idx) => `${idx === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      const elapsedPath = pts.slice(0, todayIdx + 1).map((p, idx) => `${idx === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      const areaPath = `${linePath} L${pts[pts.length - 1].x},${padT + ch} L${pts[0].x},${padT + ch} Z`;
+      const todayPt = pts[todayIdx];
+
+      svg.innerHTML = `
+        <defs>
+          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${strokeColor}" stop-opacity="0.32" />
+            <stop offset="100%" stop-color="${strokeColor}" stop-opacity="0.02" />
+          </linearGradient>
+        </defs>
+        <line x1="${padL}" y1="${padT}" x2="${padL + cw}" y2="${padT}" stroke="${gridColor}" stroke-dasharray="6 6" />
+        <line x1="${padL}" y1="${padT + ch * 0.5}" x2="${padL + cw}" y2="${padT + ch * 0.5}" stroke="${gridColor}" stroke-dasharray="6 6" />
+        <line x1="${padL}" y1="${padT + ch}" x2="${padL + cw}" y2="${padT + ch}" stroke="${gridColor}" />
+        <path d="${areaPath}" fill="url(#areaGrad)" />
+        <path d="${linePath}" fill="none" stroke="${strokeColor}" stroke-opacity="0.4" stroke-width="2.5" stroke-dasharray="8 6" />
+        <path d="${elapsedPath}" fill="none" stroke="${strokeColor}" stroke-width="4" stroke-linecap="round" />
+        <circle cx="${todayPt.x}" cy="${todayPt.y}" r="11" fill="#059669" fill-opacity="0.22" />
+        <circle cx="${todayPt.x}" cy="${todayPt.y}" r="5.5" fill="#059669" />
+        <line id="crosshairLine" x1="${todayPt.x}" y1="${padT}" x2="${todayPt.x}" y2="${padT + ch}" stroke="${strokeColor}" stroke-width="1.5" stroke-opacity="0.7" />
+        <circle id="crosshairDot" cx="${todayPt.x}" cy="${todayPt.y}" r="7.5" fill="${strokeColor}" stroke="${surfaceColor}" stroke-width="2.5" />
+      `;
+
+      function inspectAt(idx) {
+        const pt = pts[Math.max(0, Math.min(pts.length - 1, idx))];
+        document.getElementById('crosshairLine').setAttribute('x1', pt.x);
+        document.getElementById('crosshairLine').setAttribute('x2', pt.x);
+        document.getElementById('crosshairDot').setAttribute('cx', pt.x);
+        document.getElementById('crosshairDot').setAttribute('cy', pt.y);
+        document.getElementById('chartInspectorTag').textContent = pt.i === todayIdx ? "TODAY'S POSITION" : 'INSPECTED DAY';
+        document.getElementById('chartInspectorDate').textContent = fmtDate(pt.epoch);
+        document.getElementById('chartInspectorRem').textContent = `${pt.rem} days left`;
+        document.getElementById('chartInspectorTotal').textContent = `of ${u.totalDays} total warranty days`;
+      }
+
+      inspectAt(todayIdx);
+
+      const handlePointer = (clientX) => {
+        const rect = svg.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        inspectAt(Math.round(ratio * (pts.length - 1)));
+      };
+
+      svg.onpointermove = (e) => handlePointer(e.clientX);
+      svg.onpointerdown = (e) => handlePointer(e.clientX);
+    }
+
+    // Devices, Bills & Service
+    function switchDevTab(tab) {
+      document.querySelectorAll('[data-devtab]').forEach(c => c.classList.toggle('active', c.getAttribute('data-devtab') === tab));
+      document.getElementById('devTabUnits').style.display = tab === 'units' ? 'block' : 'none';
+      document.getElementById('devTabBills').style.display = tab === 'bills' ? 'block' : 'none';
+      document.getElementById('devTabService').style.display = tab === 'service' ? 'block' : 'none';
+    }
+
+    function renderDevicesSection() {
+      document.getElementById('devTabUnits').innerHTML = UNITS.map(u => {
+        const st = unitStats(u);
+        return `
+          <div class="card">
+            <div class="row-between" style="align-items:flex-start;">
+              <div>
+                <div class="stat-label" style="color:var(--brand);">${u.typeLabel}</div>
+                <div style="font-weight:800; font-size:16px; margin-top:2px;">${u.name}</div>
+                <div class="muted" style="margin-top:3px;">📍 ${u.location} • <span class="mono">${u.serial}</span></div>
+              </div>
+              <span class="${badgeClass(st.status)}">${badgeMarkup(st.status)}</span>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+              <button class="btn btn-outline btn-sm" onclick="openBillModal('${u.id}')">📄 Digital Bill &amp; Warranty</button>
+              <button class="btn btn-primary btn-sm" onclick="bookServiceFor('${u.id}')">🔧 Book Service Visit</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('devTabBills').innerHTML = UNITS.map(u => {
+        const st = unitStats(u);
+        return `
+          <div class="card" style="cursor:pointer;" onclick="openBillModal('${u.id}')">
+            <div class="row-between">
+              <div>
+                <div class="mono" style="font-weight:800; color:var(--brand);">${u.invoice}</div>
+                <div style="font-weight:700; margin-top:2px;">${u.name}</div>
+                <div class="muted">Installed ${fmtDate(u.installEpoch)} • ${st.remaining} days remaining</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="mono" style="font-weight:800; font-size:17px;">${fmtInr(u.baseInr + u.gstInr)}</div>
+                <div style="color:var(--brand); font-size:12.5px; font-weight:700;">View / Print →</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('srvUnitSelect').innerHTML = UNITS.map(u => `<option value="${u.id}">${u.name} — ${u.location}</option>`).join('');
+      renderServiceTickets();
+    }
+
+    function bookServiceFor(unitId) {
+      document.getElementById('srvUnitSelect').value = unitId;
+      switchDevTab('service');
+    }
+
+    function submitServiceTicket() {
+      const unitId = document.getElementById('srvUnitSelect').value;
+      const u = UNITS.find(x => x.id === unitId) || UNITS[0];
+      const cat = document.getElementById('srvCategory').value;
+      const slot = document.getElementById('srvSlot').value;
+      const note = document.getElementById('srvNote').value.trim() || `Routine inspection requested for ${u.location}`;
+      const ticket = 'SRV-' + Math.floor(10000 + Math.random() * 90000);
+      state.serviceTickets.unshift({
+        id: Date.now().toString(),
+        ticket,
+        device: `${u.name} (${u.location})`,
+        cat,
+        slot,
+        note,
+        status: 'LOGGED',
+        time: new Date().toLocaleString('en-IN')
+      });
+      persist();
+      document.getElementById('srvNote').value = '';
+      document.getElementById('serviceConfirmBox').style.display = 'block';
+      document.getElementById('serviceConfirmText').textContent = `Ticket ${ticket} logged for ${u.location} (${slot}).`;
+      renderServiceTickets();
+      showToast(`Service Ticket ${ticket} logged!`);
+    }
+
+    function markTicketResolved(id) {
+      const t = state.serviceTickets.find(x => x.id === id);
+      if (t) { t.status = 'RESOLVED'; persist(); renderServiceTickets(); showToast('Ticket marked resolved.'); }
+    }
+
+    function renderServiceTickets() {
+      const el = document.getElementById('serviceTicketsList');
+      if (!state.serviceTickets.length) {
+        el.innerHTML = '<div class="card"><div style="font-weight:700;">No service tickets yet</div><div class="muted">All installed units are operating smoothly. Log a visit anytime above.</div></div>';
+        return;
+      }
+      el.innerHTML = state.serviceTickets.map(t => `
+        <div class="card">
+          <div class="row-between">
+            <span class="mono" style="font-weight:800; color:var(--brand);">${t.ticket}</span>
+            <span class="${t.status === 'RESOLVED' ? 'pill pill-emerald' : 'pill pill-amber'}"><span class="pill-dot"></span>${t.status}</span>
+          </div>
+          <div style="font-weight:700; margin-top:6px;">${t.device}</div>
+          <div style="color:var(--brand); font-size:12.5px; font-weight:600;">${t.cat} • ${t.slot}</div>
+          <p class="muted" style="margin-top:4px;">${t.note}</p>
+          <div class="row-between" style="margin-top:10px;">
+            <span class="muted" style="font-size:11.5px;">${t.time}</span>
+            ${t.status !== 'RESOLVED' ? `<button class="btn btn-outline btn-sm" onclick="markTicketResolved('${t.id}')">Mark Resolved</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Digital Bill Modal
+    function openBillModal(unitId) {
+      const u = UNITS.find(x => x.id === unitId) || UNITS[0];
+      activeBillUnit = u;
+      const st = unitStats(u);
+      document.getElementById('billModalInv').textContent = u.invoice;
+      document.getElementById('billModalBody').innerHTML = `
+        <div class="hero-card" style="padding:18px; margin-bottom:14px;">
+          <div class="row-between">
+            <span style="font-size:11px; font-weight:700; color:#EDE9FE;">AQUAVAULT DIGITAL WARRANTY CERTIFICATE</span>
+            <span class="${badgeClass(st.status)}">${badgeMarkup(st.status)}</span>
+          </div>
+          <div style="font-size:18px; font-weight:800; margin-top:8px;">${u.name}</div>
+          <div style="font-size:12.5px; color:#DDD6FE;">${u.typeLabel} • ${u.location}</div>
+          <div class="row-between" style="margin-top:14px;">
+            <div><div style="font-size:10.5px; color:#C4B5FD;">SERIAL NO.</div><div class="mono" style="font-weight:700;">${u.serial}</div></div>
+            <div style="text-align:right;"><div style="font-size:10.5px; color:#C4B5FD;">REMAINING</div><div class="mono" style="font-weight:700;">${st.remaining} / ${u.totalDays} Days</div></div>
+          </div>
+        </div>
+        <div class="stack-sm" style="font-size:13.5px;">
+          <div class="row-between"><span class="muted">Model Code</span><strong class="mono">${u.model}</strong></div>
+          <div class="row-between"><span class="muted">Installation Date</span><strong>${fmtDate(u.installEpoch)}</strong></div>
+          <div class="row-between"><span class="muted">Warranty Expiry</span><strong>${fmtDate(st.expiryEpoch)}</strong></div>
+          <div class="row-between"><span class="muted">Authorized Dealer</span><strong>${u.dealer}</strong></div>
+          <div class="divider"></div>
+          <div class="row-between"><span class="muted">Taxable Amount</span><strong class="mono">${fmtInr(u.baseInr)}</strong></div>
+          <div class="row-between"><span class="muted">GST (18%)</span><strong class="mono">${fmtInr(u.gstInr)}</strong></div>
+          <div class="row-between" style="font-size:16px;"><strong>Grand Total Paid</strong><strong class="mono" style="color:var(--brand);">${fmtInr(u.baseInr + u.gstInr)}</strong></div>
+        </div>
+      `;
+      document.getElementById('billModal').classList.add('open');
+    }
+
+    function closeBillModal() { document.getElementById('billModal').classList.remove('open'); }
+
+    function downloadBillSummary() {
+      const u = activeBillUnit;
+      const st = unitStats(u);
+      const txt = `AQUAVAULT DIGITAL WARRANTY & TAX INVOICE\nInvoice: ${u.invoice}\nProduct: ${u.name} (${u.model})\nSerial: ${u.serial}\nLocation: ${u.location}\nInstalled: ${fmtDate(u.installEpoch)}\nWarranty Expiry: ${fmtDate(st.expiryEpoch)} (${st.remaining} days remaining)\nTotal Paid: ${fmtInr(u.baseInr + u.gstInr)}\n`;
+      triggerDownload(`${u.invoice}.txt`, txt, 'text/plain');
+      showToast(`Downloaded ${u.invoice}.txt`);
+    }
+
+    // Calculator (Hisab-Kitab)
+    function setCalcMode(mode) {
+      document.querySelectorAll('[data-calcmode]').forEach(c => c.classList.toggle('active', c.getAttribute('data-calcmode') === mode));
+      document.getElementById('calcPanelStandard').style.display = mode === 'STANDARD' ? 'block' : 'none';
+      document.getElementById('calcPanelQtyRate').style.display = mode === 'QTY_RATE' ? 'block' : 'none';
+      document.getElementById('calcPanelSplit').style.display = mode === 'SPLIT' ? 'block' : 'none';
+      document.getElementById('calcPanelMargin').style.display = mode === 'MARGIN' ? 'block' : 'none';
+      recalcSpecials();
+    }
+
+    function safeEvalMath(raw) {
+      const cleaned = raw.replace(/×/g, '*').replace(/÷/g, '/').replace(/[^0-9+\-*/.() ]/g, '');
+      if (!cleaned.trim()) return null;
+      try {
+        const res = Function(`"use strict"; return (${cleaned});`)();
+        return Number.isFinite(res) ? res : null;
+      } catch { return null; }
+    }
+
+    function calcAppend(t) {
+      calcExpr += t;
+      document.getElementById('calcExpr').textContent = calcExpr || '0';
+      const val = safeEvalMath(calcExpr);
+      if (val !== null) document.getElementById('calcResult').textContent = val.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    }
+    function calcBack() {
+      calcExpr = calcExpr.slice(0, -1);
+      document.getElementById('calcExpr').textContent = calcExpr || '0';
+      const val = safeEvalMath(calcExpr);
+      document.getElementById('calcResult').textContent = val !== null ? val.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '0';
+    }
+    function calcClear() {
+      calcExpr = '';
+      document.getElementById('calcExpr').textContent = '0';
+      document.getElementById('calcResult').textContent = '0';
+    }
+    function calcEquals() {
+      const val = safeEvalMath(calcExpr);
+      if (val === null) return;
+      const fmt = val.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+      const label = document.getElementById('calcLabel').value.trim() || 'Quick Hisab';
+      addTapeEntry(label, calcExpr, val, fmt, 'STANDARD');
+      calcExpr = String(Number(val.toFixed(2)));
+      document.getElementById('calcExpr').textContent = calcExpr;
+      document.getElementById('calcResult').textContent = fmt;
+      document.getElementById('calcLabel').value = '';
+    }
+
+    function recalcSpecials() {
+      const qty = parseFloat(document.getElementById('qrQty').value) || 0;
+      const rate = parseFloat(document.getElementById('qrRate').value) || 0;
+      const gst = parseFloat(document.getElementById('qrGst').value) || 0;
+      const base = qty * rate, tax = base * (gst / 100), tot = base + tax;
+      document.getElementById('qrBreakdown').textContent = `Base ${fmtInr(base)} + GST ${fmtInr(tax)}`;
+      document.getElementById('qrTotal').textContent = fmtInr(tot);
+
+      const spT = parseFloat(document.getElementById('spTotal').value) || 0;
+      const spC = Math.max(1, parseFloat(document.getElementById('spCount').value) || 1);
+      document.getElementById('spBreakdown').textContent = `Split across ${Math.round(spC)} share(s)`;
+      document.getElementById('spPerShare').textContent = fmtInr(spT / spC);
+
+      const cost = parseFloat(document.getElementById('mgCost').value) || 0;
+      const sell = parseFloat(document.getElementById('mgSell').value) || 0;
+      const prof = sell - cost;
+      const pct = sell > 0 ? (prof / sell) * 100 : 0;
+      document.getElementById('mgBreakdown').textContent = `Margin ${pct.toFixed(1)}% on selling price`;
+      document.getElementById('mgProfit').textContent = `${prof >= 0 ? '+' : ''}${fmtInr(prof)}`;
+    }
+
+    function saveQtyRateToTape() {
+      const qty = parseFloat(document.getElementById('qrQty').value) || 0;
+      const rate = parseFloat(document.getElementById('qrRate').value) || 0;
+      const gst = parseFloat(document.getElementById('qrGst').value) || 0;
+      const tot = qty * rate * (1 + gst / 100);
+      addTapeEntry(document.getElementById('calcLabel').value.trim() || 'Qty × Rate', `${qty} × ₹${rate} (+${gst}% GST)`, tot, fmtInr(tot), 'QTY_RATE');
+      document.getElementById('calcLabel').value = '';
+    }
+    function saveSplitToTape() {
+      const spT = parseFloat(document.getElementById('spTotal').value) || 0;
+      const spC = Math.max(1, parseFloat(document.getElementById('spCount').value) || 1);
+      const each = spT / spC;
+      addTapeEntry(document.getElementById('calcLabel').value.trim() || 'Expense Split', `${fmtInr(spT)} ÷ ${Math.round(spC)}`, each, `${fmtInr(each)}/ea`, 'SPLIT');
+      document.getElementById('calcLabel').value = '';
+    }
+    function saveMarginToTape() {
+      const cost = parseFloat(document.getElementById('mgCost').value) || 0;
+      const sell = parseFloat(document.getElementById('mgSell').value) || 0;
+      const prof = sell - cost;
+      addTapeEntry(document.getElementById('calcLabel').value.trim() || 'Profit Margin', `Sell ₹${sell} - Cost ₹${cost}`, prof, fmtInr(prof), 'MARGIN');
+      document.getElementById('calcLabel').value = '';
+    }
+
+    function addTapeEntry(label, expr, value, formatted, mode) {
+      state.calcTape.unshift({ id: Date.now().toString(), label, expr, value, formatted, mode });
+      persist();
+      renderCalcTape();
+      showToast('Saved to Hisab-Kitab tape');
+    }
+
+    function deleteTapeEntry(id) {
+      state.calcTape = state.calcTape.filter(e => e.id !== id);
+      persist();
+      renderCalcTape();
+    }
+
+    function renderCalcTape() {
+      const sum = state.calcTape.reduce((a, b) => a + (Number(b.value) || 0), 0);
+      document.getElementById('tapeRunningSum').textContent = 'Sum: ' + sum.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+      const el = document.getElementById('calcTapeList');
+      if (!state.calcTape.length) {
+        el.innerHTML = '<div class="card"><div class="muted">No calculations saved yet. Tap = or Save to Tape to track your hisab.</div></div>';
+        return;
+      }
+      el.innerHTML = state.calcTape.map(e => `
+        <div class="card" style="padding:14px 16px;">
+          <div class="row-between">
+            <div>
+              <div style="font-weight:700; font-size:14px;">${e.label} <span class="pill pill-brand" style="font-size:10px; padding:2px 7px; margin-left:6px;">${e.mode}</span></div>
+              <div class="mono muted" style="font-size:12px;">${e.expr}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <strong class="mono" style="color:var(--brand); font-size:16px;">${e.formatted}</strong>
+              <button class="icon-pill-btn" style="width:32px;height:32px;" onclick="deleteTapeEntry('${e.id}')" aria-label="Delete">🗑️</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Notepad & Gmail/Drive Sync
+    function connectGoogleAccount() {
+      const email = document.getElementById('googleEmailInput').value.trim();
+      if (!email || !email.includes('@')) {
+        showToast('Please enter a valid Gmail address');
+        return;
+      }
+      state.googleEmail = email;
+      persist();
+      renderSyncHeader();
+      showToast(`Connected ${email} for Gmail & Drive workflows`);
+    }
+
+    function saveSyncSettings() {
+      state.gmailSync = document.getElementById('chkGmailSync').checked;
+      state.driveAutoSave = document.getElementById('chkDriveSync').checked;
+      persist();
+      renderSyncHeader();
+      showToast('Sync preferences updated');
+    }
+
+    function renderSyncHeader() {
+      document.getElementById('googleEmailInput').value = state.googleEmail || '';
+      document.getElementById('chkGmailSync').checked = state.gmailSync;
+      document.getElementById('chkDriveSync').checked = state.driveAutoSave;
+      document.getElementById('syncAccountEmail').textContent = state.googleEmail
+        ? `Connected: ${state.googleEmail} • Offline-first fallback active`
+        : 'Offline-first persistence active • Enter Gmail above to link backup';
+      const label = state.gmailSync && state.driveAutoSave
+        ? 'Synced with Gmail & Drive'
+        : state.driveAutoSave ? 'Auto-Saved to Drive' : 'Saved Locally';
+      document.getElementById('syncStatusPill').innerHTML = `<span class="pill-dot"></span>${label}`;
+    }
+
+    function autoSaveDraft() {
+      document.getElementById('draftStatus').textContent = 'Draft auto-saved just now ✓';
+    }
+
+    function clearNoteEditor() {
+      editingNoteId = null;
+      document.getElementById('noteEditorHeading').textContent = 'Write Personal Note';
+      document.getElementById('noteTitle').value = '';
+      document.getElementById('noteContent').value = '';
+      document.getElementById('notePinned').checked = false;
+    }
+
+    function saveNote() {
+      const title = document.getElementById('noteTitle').value.trim();
+      const content = document.getElementById('noteContent').value.trim();
+      const tag = document.getElementById('noteTag').value;
+      const pinned = document.getElementById('notePinned').checked;
+      if (!title) { showToast('Please enter a note title'); return; }
+
+      const syncLabel = state.gmailSync && state.driveAutoSave
+        ? 'Synced with Gmail & Drive'
+        : state.driveAutoSave ? 'Auto-Saved to Drive' : 'Saved Locally';
+
+      if (editingNoteId) {
+        const idx = state.notes.findIndex(n => n.id === editingNoteId);
+        if (idx >= 0) {
+          state.notes[idx] = { ...state.notes[idx], title, content, tag, pinned, updatedAt: new Date().toLocaleString('en-IN'), syncLabel };
+        }
+      } else {
+        state.notes.unshift({
+          id: 'n_' + Date.now(),
+          title,
+          content,
+          tag,
+          pinned,
+          updatedAt: new Date().toLocaleString('en-IN'),
+          syncLabel
+        });
+      }
+      persist();
+      clearNoteEditor();
+      renderNotes();
+      renderHome();
+      showToast('Note saved & synced!');
+    }
+
+    function editNote(id) {
+      const n = state.notes.find(x => x.id === id);
+      if (!n) return;
+      editingNoteId = id;
+      document.getElementById('noteEditorHeading').textContent = 'Editing Note';
+      document.getElementById('noteTitle').value = n.title;
+      document.getElementById('noteContent').value = n.content;
+      document.getElementById('noteTag').value = n.tag;
+      document.getElementById('notePinned').checked = !!n.pinned;
+      window.scrollTo({ top: 140, behavior: 'smooth' });
+    }
+
+    function deleteNote(id) {
+      state.notes = state.notes.filter(n => n.id !== id);
+      persist();
+      renderNotes();
+      renderHome();
+      showToast('Note deleted');
+    }
+
+    function sendNoteGmail(id) {
+      const n = state.notes.find(x => x.id === id);
+      if (!n) return;
+      const to = encodeURIComponent(state.googleEmail || '');
+      const subj = encodeURIComponent(`[AquaVault Note • ${n.tag}] ${n.title}`);
+      const body = encodeURIComponent(`${n.title}\nTag: ${n.tag}\nUpdated: ${n.updatedAt}\n\n${n.content}`);
+      window.open(`mailto:${to}?subject=${subj}&body=${body}`, '_blank');
+      showToast('Opened Gmail backup draft');
+    }
+
+    function exportNoteDrive(id) {
+      const n = state.notes.find(x => x.id === id);
+      if (!n) return;
+      const body = `AQUAVAULT PERSONAL NOTEPAD — GOOGLE DRIVE BACKUP\nAccount: ${state.googleEmail || 'Local Customer'}\nTitle: ${n.title}\nTag: ${n.tag}\nUpdated: ${n.updatedAt}\n------------------------------------------\n\n${n.content}\n`;
+      triggerDownload(`${n.title.replace(/[^a-z0-9]+/gi, '_')}.txt`, body, 'text/plain');
+      showToast('Exported note file ready for Google Drive');
+    }
+
+    function setNoteFilter(f) {
+      activeNoteFilter = f;
+      document.querySelectorAll('[data-notefilter]').forEach(c => c.classList.toggle('active', c.getAttribute('data-notefilter') === f));
+      renderNotes();
+    }
+
+    function renderNotes() {
+      const q = (document.getElementById('noteSearch').value || '').trim().toLowerCase();
+      const sorted = [...state.notes].sort((a, b) => Number(b.pinned) - Number(a.pinned));
+      const list = sorted.filter(n => {
+        const mf = activeNoteFilter === 'All' ? true : activeNoteFilter === 'Pinned' ? n.pinned : n.tag === activeNoteFilter;
+        const mq = !q || n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q) || n.tag.toLowerCase().includes(q);
+        return mf && mq;
+      });
+      const el = document.getElementById('notesList');
+      if (!list.length) {
+        el.innerHTML = '<div class="card"><div class="muted">No matching notes found. Write a note above and tap Save &amp; Sync.</div></div>';
+        return;
+      }
+      el.innerHTML = list.map(n => `
+        <div class="card">
+          <div class="row-between">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span class="pill pill-brand">${n.tag}</span>
+              ${n.pinned ? '<span class="pill pill-amber">📌 Pinned</span>' : ''}
+              <span style="color:var(--emerald); font-size:11.5px; font-weight:700;">✓ ${n.syncLabel}</span>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-outline btn-sm" onclick="editNote('${n.id}')">Edit</button>
+              <button class="btn btn-outline btn-sm" onclick="deleteNote('${n.id}')">🗑️</button>
+            </div>
+          </div>
+          <div style="font-weight:800; font-size:16px; margin-top:8px;">${n.title}</div>
+          <p class="muted" style="margin-top:4px; white-space:pre-wrap;">${n.content}</p>
+          <div class="row-between" style="margin-top:12px;">
+            <span class="muted" style="font-size:11.5px;">${n.updatedAt}</span>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-outline btn-sm" onclick="sendNoteGmail('${n.id}')">✉️ Gmail</button>
+              <button class="btn btn-outline btn-sm" onclick="exportNoteDrive('${n.id}')">📁 Save to Drive</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // New Tab (Apps Hub)
+    function setHubFilter(f) {
+      activeHubFilter = f;
+      document.querySelectorAll('[data-hubfilter]').forEach(c => c.classList.toggle('active', c.getAttribute('data-hubfilter') === f));
+      renderAppsHub();
+    }
+
+    function renderAppsHub() {
+      const items = activeHubFilter === 'All' ? APPS_HUB_CATALOG : APPS_HUB_CATALOG.filter(i => i.badge === activeHubFilter);
+      document.getElementById('appsHubGrid').innerHTML = items.map(app => {
+        const cls = app.badge === 'New App' ? 'pill pill-emerald' : app.badge === 'Website' ? 'pill pill-brand' : 'pill pill-amber';
+        return `
+          <div class="card" style="margin-bottom:0; display:flex; flex-direction:column; justify-content:space-between;">
+            <div>
+              <div class="row-between" style="align-items:flex-start;">
+                <div>
+                  <div style="font-weight:800; font-size:16px;">${app.title}</div>
+                  <div style="color:var(--brand); font-size:11.5px; font-weight:700;">${app.tag}</div>
+                </div>
+                <span class="${cls}">${app.badge}</span>
+              </div>
+              <p class="muted" style="margin:10px 0 14px;">${app.desc}</p>
+            </div>
+            <a href="${app.url}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="width:100%; justify-content:space-between;">
+              <span>Open in 1 Click</span><span>↗</span>
+            </a>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // DPDP Act & Privacy
+    function acceptDpdpConsent(accepted) {
+      state.dpdpAccepted = !!accepted;
+      state.privacyLogs.unshift({
+        time: new Date().toLocaleString('en-IN'),
+        action: accepted ? 'CONSENT GRANTED' : 'CONSENT WITHDRAWN',
+        detail: accepted ? 'Customer accepted DPDP Act 2023 processing notice (v2026.1).' : 'Customer withdrew optional processing consent.'
+      });
+      persist();
+      renderPrivacy();
+      renderHome();
+      showToast(accepted ? 'DPDP Act consent saved' : 'DPDP consent withdrawn');
+    }
+
+    function exportCustomerData() {
+      const payload = JSON.stringify({ exportStandard: 'DPDP Act 2023 Portable Export', customerCode: 'AQV-2026-8419', units: UNITS, state }, null, 2);
+      triggerDownload('AquaVault_DPDP_Export.json', payload, 'application/json');
+      state.privacyLogs.unshift({
+        time: new Date().toLocaleString('en-IN'),
+        action: 'DATA EXPORTED',
+        detail: 'Downloaded portable JSON archive of customer portal data.'
+      });
+      persist();
+      renderPrivacy();
+      showToast('Exported portable JSON archive');
+    }
+
+    function eraseAllCustomerData() {
+      if (!confirm('Erase your saved personal notes, Hisab-Kitab calculator tape, and service tickets under DPDP Right to Erasure?')) return;
+      state.notes = [];
+      state.calcTape = [];
+      state.serviceTickets = [];
+      state.googleEmail = '';
+      state.dpdpAccepted = false;
+      state.privacyLogs.unshift({
+        time: new Date().toLocaleString('en-IN'),
+        action: 'DATA ERASED',
+        detail: 'Customer exercised DPDP Act Right to Erasure and cleared all local personal records.'
+      });
+      persist();
+      renderAll();
+      showToast('Personal notes, tape & tickets erased');
+    }
+
+    function renderPrivacy() {
+      document.getElementById('dpdpConsentSwitch').checked = state.dpdpAccepted;
+      document.getElementById('dpdpConsentStatusText').textContent = state.dpdpAccepted
+        ? '✅ DPDP Consent Active (v2026.1)'
+        : '⚠️ DPDP Consent Pending / Withdrawn';
+      document.getElementById('privacyLogList').innerHTML = state.privacyLogs.slice(0, 12).map(l => `
+        <div class="stat-box" style="margin-bottom:8px;">
+          <div class="row-between">
+            <strong style="color:var(--brand); font-size:12.5px;">${l.action}</strong>
+            <span class="muted" style="font-size:11.5px;">${l.time}</span>
+          </div>
+          <div class="muted" style="margin-top:3px;">${l.detail}</div>
+        </div>
+      `).join('');
+    }
+
+    function triggerDownload(filename, content, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function renderAll() {
+      applyTheme();
+      renderHome();
+      renderWarrantyDashboard();
+      renderDevicesSection();
+      recalcSpecials();
+      renderCalcTape();
+      renderSyncHeader();
+      renderNotes();
+      renderAppsHub();
+      renderPrivacy();
+    }
+
+    renderAll();
+  </script>
+</body>
+</html>
