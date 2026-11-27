@@ -1,0 +1,25 @@
+{
+  "name": "AquaVault Admin Command Center",
+  "short_name": "AquaVault Admin",
+  "description": "Zero-trust administrative control center for AquaVault Water Level Controllers & Water Stoppers.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#06060A",
+  "theme_color": "#4C1D95",
+  "icons": [
+    {
+      "src": "../assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "../assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

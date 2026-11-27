@@ -82,27 +82,32 @@ function createDefaultInvoiceDraft() {
   const due = new Date(today.getTime() + 14 * 86400000);
   const iso = (d) => d.toISOString().slice(0, 10);
   const seq = 101 + ((typeof state !== 'undefined' && state.invoices) ? state.invoices.length : 0);
+  let def = {};
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('aquavault_admin_config_v1') : null;
+    if (raw) def = (JSON.parse(raw).invoiceDefaults) || {};
+  } catch {}
 
   return {
-    palette: 'violet',
-    frameStyle: 'colorful', // 'colorful' | 'classic'
+    palette: def.palette || 'violet',
+    frameStyle: def.frameStyle === 'classic' ? 'classic' : 'colorful',
     invoiceNo: `INV-AQV-2026-0${seq}`,
     invoiceDate: iso(today),
     dueDate: iso(due),
     status: 'Paid',
-    businessName: 'AquaVault Water Systems',
-    businessAddress: '42 Royal Tech Park, Indiranagar, Bengaluru 560038',
-    businessPhone: '+91 98765 43210',
-    businessEmail: 'billing@aquavault.in',
+    businessName: def.businessName || 'AquaVault Water Systems',
+    businessAddress: def.businessAddress || '42 Royal Tech Park, Indiranagar, Bengaluru 560038',
+    businessPhone: def.businessPhone || '+91 98765 43210',
+    businessEmail: def.businessEmail || 'billing@aquavault.in',
     businessWebsite: 'GSTIN: 29AABCA8419F1Z5',
     clientName: 'Aarav Sharma',
     clientAddress: '18 Palm Grove Residency, Whitefield, Bengaluru',
     clientPhone: '+91 98112 44019',
     clientEmail: 'aarav.sharma@gmail.com',
     paymentMethod: 'UPI / Bank Transfer',
-    paymentDetails: 'HDFC Bank • A/C: 50200084192011 • UPI: aquavault@okhdfcbank',
+    paymentDetails: def.paymentDetails || 'HDFC Bank • A/C: 50200084192011 • UPI: aquavault@okhdfcbank',
     discountPct: 5,
-    taxPct: 18,
+    taxPct: typeof def.gstPercent === 'number' ? def.gstPercent : 18,
     terms: 'Payment due within 14 days. Includes 2-year AquaVault Shield hardware warranty & priority engineer support.',
     approvedBy: 'Ritik Raj',
     items: [

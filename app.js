@@ -99,9 +99,26 @@ const HUB_APPS = [
 ];
 
 const STORAGE_KEY = 'aquavault_luxury_state_v2';
+const REMOTE_CONFIG_KEY = 'aquavault_admin_config_v1';
 const PWA_POPUP_SESSION_KEY = 'aquavault_pwa_top_popup_shown';
 const DAY_MS = 86400000;
 const CURRENT_PAGE = document.body.dataset.page || 'home';
+
+function getRemoteConfig() {
+  try {
+    const raw = localStorage.getItem(REMOTE_CONFIG_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function isFeatureEnabled(key) {
+  if (key === 'home') return true;
+  const cfg = getRemoteConfig();
+  if (!cfg || !cfg.features) return true;
+  return cfg.features[key] !== false;
+}
 
 function shiftDays(delta) {
   const d = new Date();
@@ -345,7 +362,7 @@ function initPWA() {
     if (CURRENT_PAGE === 'privacy') render();
   });
 
-  if (!isStandalonePWA() && !sessionStorage.getItem(PWA_POPUP_SESSION_KEY)) {
+  if (isFeatureEnabled('pwaPopup') && !isStandalonePWA() && !sessionStorage.getItem(PWA_POPUP_SESSION_KEY)) {
     setTimeout(() => {
       showTopInstallPopup();
     }, 450);
@@ -580,9 +597,9 @@ function mountShell() {
           </div>
 
           <div class="topbar-actions">
-            <a href="invoice.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'invoice' ? 'active' : ''}" aria-label="Invoice Generator" title="Colorful Invoice Generator">${ICONS.receipt}</a>
-            <a href="hub.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'hub' ? 'active' : ''}" aria-label="Apps Hub" title="New Tab — Apps Hub">${ICONS.hub}</a>
-            <a href="privacy.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'privacy' ? 'active' : ''}" aria-label="Privacy & Settings" title="DPDP Privacy & Settings">${ICONS.privacy}</a>
+            ${isFeatureEnabled('invoice') ? `<a href="invoice.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'invoice' ? 'active' : ''}" aria-label="Invoice Generator" title="Colorful Invoice Generator">${ICONS.receipt}</a>` : ''}
+            ${isFeatureEnabled('hub') ? `<a href="hub.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'hub' ? 'active' : ''}" aria-label="Apps Hub" title="New Tab — Apps Hub">${ICONS.hub}</a>` : ''}
+            ${isFeatureEnabled('privacy') ? `<a href="privacy.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'privacy' ? 'active' : ''}" aria-label="Privacy & Settings" title="DPDP Privacy & Settings">${ICONS.privacy}</a>` : ''}
             <button class="theme-pill-btn" onclick="toggleTheme()" aria-label="Switch Day or Night Mode">
               <span id="topThemeIcon"></span>
               <span id="topThemeLabel">Night</span>
@@ -634,7 +651,7 @@ function mountShell() {
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   `;
 
-  const careItems = ROUTES.filter(r => r.group === 'care');
+  const careItems = ROUTES.filter(r => r.group === 'care' && isFeatureEnabled(r.id));
   const workItems = ROUTES.filter(r => r.group === 'work');
   document.getElementById('sidebarNav').innerHTML = `
     <div class="nav-section-label">Customer Vault</div>
@@ -645,7 +662,7 @@ function mountShell() {
       </a>
     `).join('')}
     <div class="nav-section-label" style="margin-top:10px;">Personal Workspace</div>
-    ${workItems.map(r => `
+    ${workItems.filter(r => isFeatureEnabled(r.id)).map(r => `
       <a href="${r.href}" class="side-btn ${CURRENT_PAGE === r.id ? 'active' : ''}">
         ${ICONS[r.icon]}
         <span>${r.fullLabel || r.label}</span>
@@ -653,7 +670,7 @@ function mountShell() {
     `).join('')}
   `;
 
-  const dockItems = ROUTES.filter(r => r.dock);
+  const dockItems = ROUTES.filter(r => r.dock && isFeatureEnabled(r.id));
   document.getElementById('bottomDock').innerHTML = dockItems.map(r => `
     <a href="${r.href}" class="dock-btn ${CURRENT_PAGE === r.id ? 'active' : ''}" aria-label="${r.label}">
       ${ICONS[r.icon]}
@@ -2000,7 +2017,11 @@ function renderNotes() {
    ========================================================================= */
 function renderHub() {
   const cats = ['All', 'New App', 'Website', 'Tool'];
-  const items = state.hubFilter === 'All' ? HUB_APPS : HUB_APPS.filter(a => a.category === state.hubFilter);
+  const remoteCfg = getRemoteConfig();
+  const sourceApps = (remoteCfg && Array.isArray(remoteCfg.hubApps))
+    ? remoteCfg.hubApps.filter(a => a.enabled !== false && /^https:\/\//i.test(String(a.url || '')))
+    : HUB_APPS;
+  const items = state.hubFilter === 'All' ? sourceApps : sourceApps.filter(a => a.category === state.hubFilter);
 
   return `
     <div class="page-view">
@@ -2216,32 +2237,56 @@ function triggerDownload(filename, content, mime) {
 function render() {
   const main = document.getElementById('appMain');
   if (!main) return;
+  const cfg = getRemoteConfig();
+
+  if (cfg && cfg.maintenanceMode) {
+    main.innerHTML = `
+      <div class="page-view">
+        <div class="card" style="max-width:560px;margin:28px auto;text-align:center;padding:34px 24px;">
+          <div class="eyebrow" style="color:var(--primary);margin-bottom:8px;">Scheduled System Upgrade</div>
+          <h1 class="serif" style="font-size:34px;margin:0 0 10px;line-height:1.08;">AquaVault Calibration in Progress</h1>
+          <p style="font-size:14px;color:var(--ink-secondary);margin:0;">${escapeHtml(cfg.maintenanceMessage || 'We are upgrading AquaVault services. Please check back shortly.')}</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const bannerHtml = (cfg && cfg.announcementActive && cfg.announcementText)
+    ? `<div class="card" style="margin-bottom:14px;padding:12px 16px;background:var(--primary-soft);border-color:var(--border-strong);display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--ink);"><span style="color:var(--primary);flex-shrink:0;">${ICONS.bolt}</span><span>${escapeHtml(cfg.announcementText)}</span></div>`
+    : '';
+
+  if (!isFeatureEnabled(CURRENT_PAGE)) {
+    main.innerHTML = `${bannerHtml}<div class="page-view"><div class="card" style="text-align:center;padding:32px 20px;"><h2 class="serif" style="font-size:28px;margin:0 0 8px;">Section Temporarily Unavailable</h2><p style="font-size:13.5px;color:var(--ink-secondary);margin:0 0 16px;">This module is currently paused. Return to Home to manage your AquaVault devices.</p><a href="index.html" class="btn btn-primary btn-sm">Back to Home</a></div></div>`;
+    return;
+  }
+
   switch (CURRENT_PAGE) {
     case 'warranty':
-      main.innerHTML = renderWarranty();
+      main.innerHTML = bannerHtml + renderWarranty();
       bindChartInteraction();
       break;
     case 'devices':
-      main.innerHTML = renderDevices();
+      main.innerHTML = bannerHtml + renderDevices();
       break;
     case 'calculator':
-      main.innerHTML = renderCalculator();
+      main.innerHTML = bannerHtml + renderCalculator();
       break;
     case 'invoice':
-      main.innerHTML = typeof renderInvoicePage === 'function' ? renderInvoicePage() : renderHome();
+      main.innerHTML = bannerHtml + (typeof renderInvoicePage === 'function' ? renderInvoicePage() : renderHome());
       break;
     case 'notes':
-      main.innerHTML = renderNotes();
+      main.innerHTML = bannerHtml + renderNotes();
       break;
     case 'hub':
-      main.innerHTML = renderHub();
+      main.innerHTML = bannerHtml + renderHub();
       break;
     case 'privacy':
-      main.innerHTML = renderPrivacy();
+      main.innerHTML = bannerHtml + renderPrivacy();
       break;
     case 'home':
     default:
-      main.innerHTML = renderHome();
+      main.innerHTML = bannerHtml + renderHome();
       break;
   }
 }

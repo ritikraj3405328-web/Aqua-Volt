@@ -1,5 +1,121 @@
 {
   "entities": {
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Verified AquaVault administrator identity authorized to manage global app controls and customer support.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID of the verified administrator." },
+        "email": { "type": "string", "description": "Verified administrator email address." },
+        "username": { "type": "string", "description": "Unique administrator username." },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "OPS_ADMIN"], "description": "Administrative privilege tier." },
+        "active": { "type": "boolean", "description": "Whether this admin account is currently active." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "uid",
+        "email",
+        "username",
+        "role",
+        "active",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AppGlobalConfig": {
+      "title": "AppGlobalConfig",
+      "description": "Admin-controlled feature toggles, maintenance mode, brand broadcast banner, and invoice studio defaults.",
+      "type": "object",
+      "properties": {
+        "featureWarranty": { "type": "boolean", "description": "Enable or disable Warranty Dashboard in customer app." },
+        "featureDevices": { "type": "boolean", "description": "Enable or disable Devices, Bills & Service in customer app." },
+        "featureCalculator": { "type": "boolean", "description": "Enable or disable Hisab-Kitab Calculator in customer app." },
+        "featureInvoice": { "type": "boolean", "description": "Enable or disable Colorful Invoice Generator in customer app." },
+        "featureNotes": { "type": "boolean", "description": "Enable or disable Personal Notepad & Sync in customer app." },
+        "featureHub": { "type": "boolean", "description": "Enable or disable New Tab Apps Hub in customer app." },
+        "featurePrivacy": { "type": "boolean", "description": "Enable or disable DPDP Privacy & Settings in customer app." },
+        "featurePwaPopup": { "type": "boolean", "description": "Enable or disable 7-second PWA Install top popup." },
+        "maintenanceMode": { "type": "boolean", "description": "Temporarily pause customer app with maintenance notice." },
+        "maintenanceMessage": { "type": "string", "description": "Customer-facing maintenance notice message." },
+        "announcementActive": { "type": "boolean", "description": "Show top brand announcement banner in customer app." },
+        "announcementText": { "type": "string", "description": "Broadcast announcement text for customers." },
+        "defaultGstPercent": { "type": "number", "description": "Default GST percentage for Invoice Generator." },
+        "defaultInvoicePalette": { "type": "string", "enum": ["violet", "sapphire", "emerald", "crimson", "gold", "obsidian"], "description": "Default color palette for Invoice Generator." },
+        "defaultTheme": { "type": "string", "enum": ["light", "dark"], "description": "Default Day or Night theme." },
+        "updatedByUid": { "type": "string", "description": "UID of the admin who made the last update." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "featureWarranty",
+        "featureDevices",
+        "featureCalculator",
+        "featureInvoice",
+        "featureNotes",
+        "featureHub",
+        "featurePrivacy",
+        "featurePwaPopup",
+        "maintenanceMode",
+        "maintenanceMessage",
+        "announcementActive",
+        "announcementText",
+        "defaultGstPercent",
+        "defaultInvoicePalette",
+        "defaultTheme",
+        "updatedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "HubAppItem": {
+      "title": "HubAppItem",
+      "description": "Admin-managed app, website, or utility link shown in the Customer New Tab Apps Hub.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Display title of the app or website." },
+        "category": { "type": "string", "enum": ["Website", "New App", "Tool"], "description": "Category filter badge." },
+        "desc": { "type": "string", "description": "Short description shown on the card." },
+        "url": { "type": "string", "description": "HTTPS external destination URL." },
+        "icon": { "type": "string", "description": "Icon identifier from SVG icon set." },
+        "enabled": { "type": "boolean", "description": "Whether this item is visible to customers." },
+        "sortOrder": { "type": "integer", "description": "Display order priority." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "name",
+        "category",
+        "desc",
+        "url",
+        "icon",
+        "enabled",
+        "sortOrder",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Immutable security and administrative action log for anti-hacker auditing.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string", "description": "Firebase Auth UID of the admin performing the action." },
+        "actorEmail": { "type": "string", "description": "Verified email of the admin performing the action." },
+        "eventType": { "type": "string", "enum": ["LOGIN_VERIFIED", "CONFIG_UPDATED", "WARRANTY_MODIFIED", "TICKET_UPDATED", "HUB_UPDATED", "SECURITY_ALERT", "PASSWORD_RESET"], "description": "Audit event classification." },
+        "summary": { "type": "string", "description": "Human-readable audit event summary." },
+        "severity": { "type": "string", "enum": ["INFO", "WARNING", "CRITICAL"], "description": "Security severity level." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "actorUid",
+        "actorEmail",
+        "eventType",
+        "summary",
+        "severity",
+        "createdAt"
+      ]
+    },
     "CustomerProfile": {
       "title": "CustomerProfile",
       "description": "Authenticated customer profile, theme preference, cloud sync toggles, and DPDP Act consent record.",
@@ -101,6 +217,35 @@
         "updatedAt"
       ]
     },
+    "InvoiceRecord": {
+      "title": "InvoiceRecord",
+      "description": "Colorful Invoice Studio document stored per customer with GST totals and payment state.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "invoiceNo": { "type": "string", "description": "Unique invoice number." },
+        "clientName": { "type": "string", "description": "Billed customer name." },
+        "grandTotal": { "type": "number", "description": "Grand total payable in INR." },
+        "status": { "type": "string", "enum": ["PAID", "PENDING", "OVERDUE"], "description": "Payment state." },
+        "palette": { "type": "string", "enum": ["violet", "sapphire", "emerald", "crimson", "gold", "obsidian"], "description": "Invoice color palette." },
+        "invoiceDate": { "type": "string", "description": "ISO date of issue." },
+        "dueDate": { "type": "string", "description": "ISO due date." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp updated via FieldValue.serverTimestamp()." }
+      },
+      "required": [
+        "userId",
+        "invoiceNo",
+        "clientName",
+        "grandTotal",
+        "status",
+        "palette",
+        "invoiceDate",
+        "dueDate",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
     "CalcEntry": {
       "title": "CalcEntry",
       "description": "Hisab-Kitab calculator tape entry persisted to the user's cloud history.",
@@ -176,6 +321,22 @@
     }
   },
   "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Verified AquaVault administrator directory strictly protected against privilege escalation."
+    },
+    "/appConfig/{configId}": {
+      "schema": { "$ref": "#/entities/AppGlobalConfig" },
+      "description": "Admin-controlled feature flags, maintenance switch, broadcast banner, and invoice defaults."
+    },
+    "/hubApps/{appId}": {
+      "schema": { "$ref": "#/entities/HubAppItem" },
+      "description": "Admin-managed external websites, apps, and utilities for the New Tab Apps Hub."
+    },
+    "/adminAuditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AdminAuditLog" },
+      "description": "Immutable append-only security and admin activity audit logs."
+    },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/CustomerProfile" },
       "description": "Customer profile, theme preference, cloud sync toggles, and DPDP consent."
@@ -187,6 +348,10 @@
     "/users/{userId}/serviceRequests/{requestId}": {
       "schema": { "$ref": "#/entities/ServiceRequest" },
       "description": "Customer service and inspection tickets."
+    },
+    "/users/{userId}/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/InvoiceRecord" },
+      "description": "Saved colorful customer invoices."
     },
     "/users/{userId}/calcEntries/{entryId}": {
       "schema": { "$ref": "#/entities/CalcEntry" },
