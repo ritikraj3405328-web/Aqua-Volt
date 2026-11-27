@@ -41,6 +41,7 @@ const ROUTES = [
   { id: 'warranty', href: 'warranty.html', label: 'Warranty', subtitle: 'Live Countdown', icon: 'warranty', group: 'care', dock: true },
   { id: 'devices', href: 'devices.html', label: 'Devices', subtitle: 'Bills & Service', icon: 'devices', group: 'care', dock: true },
   { id: 'calculator', href: 'calculator.html', label: 'Hisab', fullLabel: 'Hisab-Kitab', subtitle: 'Calculator', icon: 'calc', group: 'work', dock: true },
+  { id: 'invoice', href: 'invoice.html', label: 'Invoice', fullLabel: 'Invoice Generator', subtitle: 'Invoice Studio', icon: 'receipt', group: 'work', dock: false },
   { id: 'notes', href: 'notes.html', label: 'Notes', fullLabel: 'Notepad & Sync', subtitle: 'Notepad Sync', icon: 'notes', group: 'work', dock: true },
   { id: 'hub', href: 'hub.html', label: 'New Tab', fullLabel: 'New Tab (Apps Hub)', subtitle: 'Apps Hub', icon: 'hub', group: 'work', dock: false },
   { id: 'privacy', href: 'privacy.html', label: 'Privacy', fullLabel: 'DPDP Privacy & Settings', subtitle: 'DPDP & Settings', icon: 'privacy', group: 'work', dock: false }
@@ -579,6 +580,7 @@ function mountShell() {
           </div>
 
           <div class="topbar-actions">
+            <a href="invoice.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'invoice' ? 'active' : ''}" aria-label="Invoice Generator" title="Colorful Invoice Generator">${ICONS.receipt}</a>
             <a href="hub.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'hub' ? 'active' : ''}" aria-label="Apps Hub" title="New Tab — Apps Hub">${ICONS.hub}</a>
             <a href="privacy.html" class="icon-circle-btn topbar-mobile-only ${CURRENT_PAGE === 'privacy' ? 'active' : ''}" aria-label="Privacy & Settings" title="DPDP Privacy & Settings">${ICONS.privacy}</a>
             <button class="theme-pill-btn" onclick="toggleTheme()" aria-label="Switch Day or Night Mode">
@@ -802,6 +804,17 @@ function renderHome() {
       <div class="section-head">
         <h2 class="section-title">Personal Workspace</h2>
       </div>
+
+      <a href="invoice.html" class="invoice-promo-card">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+          <span class="icon-badge" style="background:rgba(255,255,255,0.18);color:#FFFFFF;">${ICONS.receipt}</span>
+          <div style="min-width:0;">
+            <div style="font-size:15px;font-weight:800;letter-spacing:-0.015em;">Colorful Invoice Generator</div>
+            <div style="font-size:12px;color:rgba(243,239,253,0.86);margin-top:2px;">6 luxury themes &middot; PDF, HD Image &amp; Google Sheets CSV</div>
+          </div>
+        </div>
+        <span style="flex-shrink:0;color:#FFFFFF;">${ICONS.arrowRight}</span>
+      </a>
 
       <div class="bento-grid">
         <a href="calculator.html" class="bento-card">
@@ -1173,7 +1186,18 @@ function renderDevices() {
       </div>
     `;
   } else if (tab === 'bills') {
-    contentHtml = state.units.map(u => {
+    contentHtml = `
+      <a href="invoice.html" class="invoice-promo-card" style="margin-bottom:14px;">
+        <div style="display:flex;align-items:center;gap:11px;min-width:0;">
+          <span class="icon-badge" style="background:rgba(255,255,255,0.18);color:#FFFFFF;">${ICONS.receipt}</span>
+          <div style="min-width:0;">
+            <div style="font-size:14px;font-weight:800;">Create Custom Colorful Invoice</div>
+            <div style="font-size:11.5px;color:rgba(243,239,253,0.85);">Download PDF, PNG Image &amp; Google Sheets CSV</div>
+          </div>
+        </div>
+        <span style="flex-shrink:0;color:#FFFFFF;">${ICONS.arrowRight}</span>
+      </a>
+    ` + state.units.map(u => {
       const total = u.basePrice * (1 + u.gstRate / 100);
       return `
         <div class="bill-row">
@@ -2202,6 +2226,9 @@ function render() {
       break;
     case 'calculator':
       main.innerHTML = renderCalculator();
+      break;
+    case 'invoice':
+      main.innerHTML = typeof renderInvoicePage === 'function' ? renderInvoicePage() : renderHome();
       break;
     case 'notes':
       main.innerHTML = renderNotes();

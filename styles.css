@@ -2062,6 +2062,332 @@ svg.icon {
   .toast { bottom: 28px; }
 }
 
+/* =========================================================================
+   PAGE 8: COLORFUL LUXURY INVOICE STUDIO (ZERO-OVERFLOW)
+   ========================================================================= */
+.palette-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+  max-width: 100%;
+}
+
+.palette-strip::-webkit-scrollbar { display: none; }
+
+.palette-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  border: 1.5px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.palette-pill.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.palette-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.inv-preview-stage {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 12px 32px -12px rgba(22, 17, 43, 0.18);
+}
+
+.inv-paper {
+  background: #FFFFFF;
+  color: #1E1B4B;
+  width: 100%;
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.inv-paper-classic {
+  border: 3px double var(--inv-primary, #5B21B6);
+  margin: 8px;
+  width: calc(100% - 16px);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.inv-classic-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px;
+  background: var(--inv-tint, #F5F3FF);
+  border-bottom: 2px solid var(--inv-primary, #5B21B6);
+}
+
+.inv-classic-title {
+  font-size: 34px;
+  line-height: 1;
+  color: var(--inv-primary, #5B21B6);
+  letter-spacing: 0.04em;
+}
+
+.inv-meta-chip {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--inv-primary, #5B21B6);
+  color: #FFFFFF;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.inv-colorful-banner {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-bottom: 4px solid var(--inv-accent, #C084FC);
+}
+
+.inv-logo-img {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  object-fit: cover;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
+}
+
+.inv-paper-body {
+  padding: 14px;
+}
+
+.inv-info-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+@media (min-width: 600px) {
+  .inv-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.inv-box {
+  min-width: 0;
+  border: 1px solid var(--inv-border, #DDD6FE);
+  border-radius: 11px;
+  overflow: hidden;
+  background: #FFFFFF;
+}
+
+.inv-box-bar {
+  padding: 5px 10px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.inv-box-content {
+  padding: 9px 10px;
+}
+
+.inv-small-line {
+  font-size: 10.5px;
+  color: #475569;
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+.inv-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  color: #475569;
+  margin-bottom: 3px;
+}
+
+.inv-kv strong {
+  color: var(--inv-ink, #1E1B4B);
+}
+
+.inv-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid var(--inv-border, #DDD6FE);
+  margin-bottom: 12px;
+}
+
+.inv-items-table {
+  width: 100%;
+  min-width: 440px;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.inv-items-table th {
+  padding: 8px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: left;
+}
+
+.inv-items-table td {
+  padding: 8px 7px;
+  border-top: 1px solid var(--inv-border, #DDD6FE);
+}
+
+.inv-bottom-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+@media (min-width: 600px) {
+  .inv-bottom-grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  }
+}
+
+.inv-totals-box {
+  border-radius: 11px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.inv-tot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 11px;
+  font-size: 11px;
+  color: #475569;
+}
+
+.inv-tot-row strong {
+  color: var(--inv-ink, #1E1B4B);
+}
+
+.inv-tot-grand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.inv-thankyou {
+  margin-top: 12px;
+  padding-top: 9px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.export-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.export-action-grid .btn {
+  width: 100%;
+  padding: 0 10px;
+}
+
+.inv-item-editor {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.inv-item-nums {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 8px;
+}
+
+.invoice-promo-card {
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 12px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--primary-deep) 0%, var(--primary) 100%);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 14px 32px -12px rgba(91, 33, 182, 0.45);
+  transition: transform 0.2s ease;
+}
+
+.invoice-promo-card:hover {
+  transform: translateY(-2px);
+}
+
+@media (max-width: 400px) {
+  .topbar {
+    padding: 9px 10px;
+    gap: 6px;
+  }
+  .topbar-actions {
+    gap: 4px;
+  }
+  .icon-circle-btn,
+  .topbar-back-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+  .theme-pill-btn {
+    height: 34px;
+    padding: 0 9px;
+    font-size: 11.5px;
+    gap: 5px;
+  }
+}
+
 @media print {
   body * { visibility: hidden; }
   #certModal, #certModal * { visibility: visible; }

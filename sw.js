@@ -1,15 +1,17 @@
-const CACHE_NAME = 'aquavault-pwa-v4';
+const CACHE_NAME = 'aquavault-pwa-v5';
 const PRECACHE_ASSETS = [
   './',
   './index.html',
   './warranty.html',
   './devices.html',
   './calculator.html',
+  './invoice.html',
   './notes.html',
   './hub.html',
   './privacy.html',
-  './styles.css?v=4',
-  './app.js?v=4',
+  './styles.css?v=5',
+  './app.js?v=5',
+  './invoice-engine.js?v=5',
   './manifest.webmanifest',
   './assets/app-icon.jpg',
   './assets/icon-192.png',
@@ -39,7 +41,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Network-first for HTML, CSS, and JS so updates deploy immediately on GitHub Pages
   if (
     event.request.mode === 'navigate' ||
     url.pathname.endsWith('.html') ||
@@ -60,7 +61,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first for static image assets
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
