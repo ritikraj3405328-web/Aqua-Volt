@@ -397,6 +397,7 @@ svg.icon {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -405,7 +406,7 @@ svg.icon {
   align-items: center;
   gap: 9px;
   flex: 1;
-  min-width: 0;
+  min-width: 170px;
 }
 
 .topbar-titles {
@@ -434,7 +435,9 @@ svg.icon {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
 }
 
 .admin-content {
@@ -879,6 +882,18 @@ svg.icon {
 .toast.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+.card, .item-row, .page-desc, .toggle-name, .toggle-desc {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 480px) {
+  .admin-content { padding: 14px 10px 96px; }
+  .card { padding: 14px; border-radius: 16px; }
+  .page-title { font-size: 26px; }
+  #idleTimerBadge { display: none; }
 }
 
 /* Desktop Breakpoint */

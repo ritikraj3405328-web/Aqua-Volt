@@ -1,7 +1,7 @@
 {
-  "name": "AquaVault Admin Command Center",
-  "short_name": "AquaVault Admin",
-  "description": "Zero-trust administrative control center for AquaVault Water Level Controllers & Water Stoppers.",
+  "name": "AGNI VOLT ELECTRONIC Admin",
+  "short_name": "AgniVolt Admin",
+  "description": "Zero-trust administrative control center for AGNI VOLT ELECTRONIC Automated Water Level Controllers, Customer Live warranties, Google Drive billing, and dynamic business settings.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

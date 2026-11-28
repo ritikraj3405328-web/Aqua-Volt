@@ -7,8 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="AquaVault" />
-  <title>New Tab Apps Hub — AquaVault</title>
+  <meta name="apple-mobile-web-app-title" content="AGNI VOLT ELECTRONIC" />
+  <title>Apps Hub — AGNI VOLT ELECTRONIC</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
   <link rel="apple-touch-icon" href="assets/icon-192.png" />
@@ -21,7 +21,7 @@
       if (s.theme === 'dark') {
         document.documentElement.setAttribute('data-theme', 'dark');
       }
-      var genKey = 'aquavault_public_cache_gen_v10';
+      var genKey = 'aquavault_public_cache_gen_v11';
       if (!localStorage.getItem(genKey)) {
         localStorage.setItem(genKey, '1');
         if ('serviceWorker' in navigator) {
@@ -32,17 +32,17 @@
         if ('caches' in window) {
           caches.keys().then(function(keys) {
             keys.forEach(function(k) {
-              if (k !== 'aquavault-cache-v10') caches.delete(k);
+              if (k !== 'aquavault-cache-v11') caches.delete(k);
             });
           }).catch(function(){});
         }
       }
     } catch (e) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=10" />
+  <link rel="stylesheet" href="styles.css?v=11" />
 </head>
 <body data-page="hub">
   <div id="appRoot"></div>
-  <script src="app.js?v=10" defer></script>
+  <script src="app.js?v=11" defer></script>
 </body>
 </html>

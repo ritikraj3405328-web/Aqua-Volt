@@ -1,39 +1,54 @@
 /**
  * ============================================================================
- * AQUAVAULT — AUTOMATIC GOOGLE DRIVE PERMANENT BILL VAULT & GOOGLE SHEETS SYNC
+ * AGNI VOLT ELECTRONIC — PERMANENT GOOGLE DRIVE BILL VAULT & SHEETS LEDGER
  * ============================================================================
  * HOW TO DEPLOY (2 MINUTES):
- * 1. Open https://script.google.com and create a New Project (or open from your Google Sheet: Extensions -> Apps Script).
+ * 1. Open https://script.google.com and create a New Project.
  * 2. Paste this entire Code.gs file and click Save (Ctrl+S).
- * 3. Click "Deploy" -> "New deployment" -> Type: "Web app".
- * 4. Set "Execute as": "Me"
+ * 3. Optional Extra Security: In Project Settings -> Script Properties,
+ *    add property "DRIVE_SYNC_SECRET" with a private passphrase.
+ * 4. Click "Deploy" -> "New deployment" -> Type: "Web app".
+ * 5. Set "Execute as": "Me"
  *    Set "Who has access": "Anyone"
- * 5. Click "Deploy", authorize Google Drive & Sheets permissions, and copy the Web App URL (ends with /exec).
- * 6. Paste the /exec URL inside AquaVault Admin -> Invoices -> Google Drive & Sheets Webhook URL (or on invoice.html).
- *
- * WHAT HAPPENS WHEN ADMIN CLICKS "GENERATE & SAVE BILL":
- * 1. Automatically creates (or reuses) a dedicated folder in your Google Drive named:
- *    "AquaVault_Permanent_Bills"
- * 2. Automatically generates a permanent PDF invoice file (plus HTML backup if needed) inside
- *    that Google Drive folder named: "INV-AQV-XXXX_CustomerName_Date.pdf"
- * 3. Appends a complete ledger row into your Google Sheet ("AquaVault_Bills_Ledger") with the
- *    direct Google Drive File link so zero bills are ever lost.
+ * 6. Click "Deploy", authorize Google Drive & Sheets permissions, and copy the Web App URL (ends with /exec).
+ * 7. Paste the /exec URL (and optional secret) inside Admin Panel -> Invoices -> Permanent Google Drive Backup.
  * ============================================================================
  */
 
-var DRIVE_FOLDER_NAME = 'AquaVault_Permanent_Bills';
-var SHEET_TAB_NAME = 'AquaVault_Bills_Ledger';
+var DRIVE_FOLDER_NAME = 'AGNI_VOLT_Permanent_Bills';
+var SHEET_BOOK_NAME = 'AGNI_VOLT_Master_Bills_Register';
+var SHEET_TAB_NAME = 'AGNI_VOLT_Bills_Ledger';
 
 function doPost(e) {
   try {
     var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : '{}';
     var payload = JSON.parse(raw);
 
+    // Optional Script Property secret check (zero secrets hardcoded here)
+    var expectedSecret = PropertiesService.getScriptProperties().getProperty('DRIVE_SYNC_SECRET') || '';
+    if (expectedSecret && String(payload.syncSecret || '') !== expectedSecret) {
+      return jsonResponse_({
+        ok: false,
+        error: 'Unauthorized sync secret'
+      });
+    }
+
     // 1. Get or create permanent Google Drive Folder
     var folder = getOrCreateDriveFolder_(DRIVE_FOLDER_NAME);
 
+    // Connection test ping from Admin Console
+    if (payload.action === 'ping') {
+      return jsonResponse_({
+        ok: true,
+        status: 'DRIVE_CONNECTED',
+        driveFolder: DRIVE_FOLDER_NAME,
+        folderUrl: folder.getUrl(),
+        checkedAt: new Date().toISOString()
+      });
+    }
+
     // 2. Build clean printable HTML invoice for permanent Google Drive PDF creation
-    var invoiceNo = String(payload.invoiceNo || ('INV-AQV-' + new Date().getTime())).trim();
+    var invoiceNo = String(payload.invoiceNo || ('INV-AV-' + new Date().getTime())).trim();
     var customerName = String(payload.customerName || payload.clientName || 'Customer').trim();
     var safeCustomerSlug = customerName.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_');
     var invoiceDate = String(payload.invoiceDate || new Date().toISOString().slice(0, 10));
@@ -49,42 +64,41 @@ function doPost(e) {
       driveFile = folder.createFile(pdfBlob);
       driveFileUrl = driveFile.getUrl();
     } catch (pdfErr) {
-      // Fallback to permanent HTML document in Google Drive if PDF conversion is unavailable
       driveFile = folder.createFile(htmlBlob);
       driveFileUrl = driveFile.getUrl();
     }
 
-    // 3. Log permanent ledger row in Google Sheets (creates a standalone Sheet inside the Drive folder if not bound)
+    // 3. Log permanent ledger row in Google Sheets
     var sheetUrl = appendInvoiceRowToSheet_(folder, payload, driveFileUrl);
 
-    return ContentService
-      .createTextOutput(JSON.stringify({
-        ok: true,
-        status: 'SAVED_TO_GOOGLE_DRIVE',
-        invoiceNo: invoiceNo,
-        driveFolder: DRIVE_FOLDER_NAME,
-        driveFileUrl: driveFileUrl,
-        sheetUrl: sheetUrl,
-        savedAt: new Date().toISOString()
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonResponse_({
+      ok: true,
+      status: 'SAVED_TO_GOOGLE_DRIVE',
+      invoiceNo: invoiceNo,
+      driveFolder: DRIVE_FOLDER_NAME,
+      driveFileUrl: driveFileUrl,
+      sheetUrl: sheetUrl,
+      savedAt: new Date().toISOString()
+    });
   } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({
-        ok: false,
-        error: String(err && err.message ? err.message : err)
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonResponse_({
+      ok: false,
+      error: String(err && err.message ? err.message : err)
+    });
   }
 }
 
 function doGet() {
+  return jsonResponse_({
+    ok: true,
+    service: 'AGNI VOLT ELECTRONIC Permanent Google Drive Bill Vault',
+    folder: DRIVE_FOLDER_NAME
+  });
+}
+
+function jsonResponse_(obj) {
   return ContentService
-    .createTextOutput(JSON.stringify({
-      ok: true,
-      service: 'AquaVault Permanent Google Drive Bill Vault',
-      folder: DRIVE_FOLDER_NAME
-    }))
+    .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -103,11 +117,11 @@ function appendInvoiceRowToSheet_(folder, p, driveFileUrl) {
   } catch (_) {}
 
   if (!ss) {
-    var existingFiles = folder.getFilesByName('AquaVault_Master_Bills_Register');
+    var existingFiles = folder.getFilesByName(SHEET_BOOK_NAME);
     if (existingFiles.hasNext()) {
       ss = SpreadsheetApp.open(existingFiles.next());
     } else {
-      ss = SpreadsheetApp.create('AquaVault_Master_Bills_Register');
+      ss = SpreadsheetApp.create(SHEET_BOOK_NAME);
       var ssFile = DriveApp.getFileById(ss.getId());
       folder.addFile(ssFile);
     }
@@ -121,9 +135,12 @@ function appendInvoiceRowToSheet_(folder, p, driveFileUrl) {
       'Invoice No',
       'Invoice Date',
       'Due Date',
+      'Warranty Start',
+      'Warranty Expiry',
       'Status',
       'Customer Name',
       'Mobile Number',
+      'Masked Phone',
       'Location / Address',
       'Product Model(s)',
       'Hardware Type',
@@ -135,7 +152,7 @@ function appendInvoiceRowToSheet_(folder, p, driveFileUrl) {
       'Payment Method',
       'Google Drive Permanent Bill Link'
     ]);
-    sheet.getRange(1, 1, 1, 17).setFontWeight('bold');
+    sheet.getRange(1, 1, 1, 20).setFontWeight('bold');
   }
 
   sheet.appendRow([
@@ -143,9 +160,12 @@ function appendInvoiceRowToSheet_(folder, p, driveFileUrl) {
     p.invoiceNo || '',
     p.invoiceDate || '',
     p.dueDate || '',
+    p.warrantyStartDate || p.invoiceDate || '',
+    p.warrantyExpiryDate || '',
     p.status || 'PAID',
     p.customerName || p.clientName || '',
     p.mobileNumber || p.clientPhone || '',
+    p.maskedPhone || maskPhoneServer_(p.mobileNumber || p.clientPhone || ''),
     p.address || p.clientAddress || '',
     p.modelName || p.itemsSummary || '',
     p.hardwareType || 'Water Level Controller',
@@ -159,6 +179,15 @@ function appendInvoiceRowToSheet_(folder, p, driveFileUrl) {
   ]);
 
   return ss.getUrl();
+}
+
+function maskPhoneServer_(phone) {
+  var digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length < 6) return 'Hidden';
+  var xs = '';
+  var maskLen = Math.min(10, Math.max(4, digits.length - 4));
+  for (var i = 0; i < maskLen; i++) xs += 'X';
+  return digits.slice(0, 2) + xs + digits.slice(-2);
 }
 
 function buildFallbackInvoiceHtml_(p) {
@@ -181,11 +210,18 @@ function buildFallbackInvoiceHtml_(p) {
     var price = Number(p.unitPrice || 0);
     itemsRows = '<tr>' +
       '<td style="padding:10px;border:1px solid #cbd5e1;text-align:center;">1</td>' +
-      '<td style="padding:10px;border:1px solid #cbd5e1;font-weight:bold;">' + escapeHtml_(p.modelName || 'AquaVault Controller') + '</td>' +
+      '<td style="padding:10px;border:1px solid #cbd5e1;font-weight:bold;">' + escapeHtml_(p.modelName || 'AGNI VOLT Water Level Controller') + '</td>' +
       '<td style="padding:10px;border:1px solid #cbd5e1;text-align:center;">' + qty + '</td>' +
       '<td style="padding:10px;border:1px solid #cbd5e1;text-align:right;">INR ' + price.toFixed(2) + '</td>' +
       '<td style="padding:10px;border:1px solid #cbd5e1;text-align:right;font-weight:bold;">INR ' + (qty * price).toFixed(2) + '</td>' +
     '</tr>';
+  }
+
+  var warrantyLine = '';
+  if (p.warrantyStartDate || p.warrantyExpiryDate) {
+    warrantyLine = '<div style="font-size:12px;color:#475569;margin-top:4px;">Warranty: <strong>' +
+      escapeHtml_(p.warrantyStartDate || p.invoiceDate || '') + '</strong> to <strong>' +
+      escapeHtml_(p.warrantyExpiryDate || 'Standard') + '</strong></div>';
   }
 
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invoice ' + escapeHtml_(p.invoiceNo || '') + '</title></head>' +
@@ -194,13 +230,15 @@ function buildFallbackInvoiceHtml_(p) {
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #5B21B6;padding-bottom:18px;margin-bottom:20px;">' +
         '<div>' +
           '<h1 style="margin:0;color:#5B21B6;font-size:28px;letter-spacing:1px;">TAX INVOICE</h1>' +
-          '<p style="margin:6px 0 0;font-size:13px;color:#475569;"><strong>' + escapeHtml_(p.businessName || 'AquaVault Smart Systems') + '</strong><br/>' +
-          escapeHtml_(p.businessAddress || '') + '<br/>Phone: ' + escapeHtml_(p.businessPhone || '') + '</p>' +
+          '<p style="margin:6px 0 0;font-size:13px;color:#475569;"><strong>' + escapeHtml_(p.businessName || 'AGNI VOLT ELECTRONIC') + '</strong><br/>' +
+          escapeHtml_(p.businessAddress || '') + (p.businessPhone ? ('<br/>Phone: ' + escapeHtml_(p.businessPhone)) : '') +
+          (p.businessGstin ? ('<br/>GSTIN: ' + escapeHtml_(p.businessGstin)) : '') + '</p>' +
         '</div>' +
         '<div style="text-align:right;">' +
           '<div style="font-size:15px;font-weight:bold;color:#5B21B6;">Invoice No: ' + escapeHtml_(p.invoiceNo || '') + '</div>' +
           '<div style="font-size:12px;color:#475569;margin-top:4px;">Date: ' + escapeHtml_(p.invoiceDate || '') + '</div>' +
           '<div style="font-size:12px;color:#475569;">Status: <strong>' + escapeHtml_(p.status || 'PAID') + '</strong></div>' +
+          warrantyLine +
         '</div>' +
       '</div>' +
       '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:20px;">' +
@@ -226,7 +264,7 @@ function buildFallbackInvoiceHtml_(p) {
         '<div style="font-size:18px;color:#5B21B6;margin-top:6px;">Grand Total: <strong>INR ' + Number(p.grandTotal || 0).toFixed(2) + '</strong></div>' +
       '</div>' +
       '<div style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b;display:flex;justify-content:space-between;">' +
-        '<span>Authorized Signatory: <strong>' + escapeHtml_(p.signatory || 'AquaVault Admin') + '</strong></span>' +
+        '<span>Authorized Signatory: <strong>' + escapeHtml_(p.signatory || 'AGNI VOLT ELECTRONIC') + '</strong></span>' +
         '<span>Saved permanently in Google Drive (' + DRIVE_FOLDER_NAME + ')</span>' +
       '</div>' +
     '</div></body></html>';

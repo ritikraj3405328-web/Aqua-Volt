@@ -39,13 +39,25 @@ service cloud.firestore {
     function hasValidKeyCount() {
       return request.resource != null &&
         request.resource.data.keys().size() >= 1 &&
-        request.resource.data.keys().size() <= 30;
+        request.resource.data.keys().size() <= 35;
+    }
+
+    function isOptionalHttpsUrl(url) {
+      return url is string && url.size() <= 500 && (url == '' || url.matches('^https://.+'));
     }
 
     // 3. Entity Validation Blueprints
-    // Public Non-Sensitive Unit Record (Strictly ZERO phone numbers, addresses, or bills allowed)
+
+    // Public Non-Sensitive Unit Record (Strictly ZERO full phone numbers, addresses, or bills allowed)
+    // Only allows pre-masked phone like "98XXXXXX45" or "Hidden"
     function isValidPublicUnit(data) {
       return data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120 &&
+        (!('maskedPhone' in data) || (
+          data.maskedPhone is string &&
+          data.maskedPhone.size() >= 4 &&
+          data.maskedPhone.size() <= 20 &&
+          data.maskedPhone.matches('^([0-9]{2}X{4,10}[0-9]{2}|X{6,12}|Hidden)$')
+        )) &&
         data.modelName is string && data.modelName.size() >= 1 && data.modelName.size() <= 140 &&
         data.hardwareType is string && data.hardwareType in ['controller', 'stopper', 'Water Level Controller', 'Water Stopper'] &&
         data.quantity is int && data.quantity >= 1 && data.quantity <= 1000 &&
@@ -90,8 +102,67 @@ service cloud.firestore {
         data.palette is string && data.palette in ['violet', 'sapphire', 'emerald', 'crimson', 'gold', 'obsidian'] &&
         data.invoiceDate is string && data.invoiceDate.size() >= 8 && data.invoiceDate.size() <= 20 &&
         data.dueDate is string && data.dueDate.size() >= 8 && data.dueDate.size() <= 20 &&
+        (!('warrantyStartDate' in data) || (data.warrantyStartDate is string && data.warrantyStartDate.size() <= 20)) &&
+        (!('warrantyExpiryDate' in data) || (data.warrantyExpiryDate is string && data.warrantyExpiryDate.size() <= 20)) &&
         data.driveSaved is bool &&
         isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    // Private Review Record (All 1-5 Star Reviews + Customer Phone Number — Strictly Admin-Only Read)
+    function isValidPrivateReview(data) {
+      return data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
+        data.phoneNumber is string && data.phoneNumber.size() >= 6 && data.phoneNumber.size() <= 25 &&
+        data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+        data.message is string && data.message.size() >= 3 && data.message.size() <= 1000 &&
+        (!('productName' in data) || (data.productName is string && data.productName.size() <= 140)) &&
+        data.status is string && data.status in ['SUBMITTED', 'REVIEWED', 'RESOLVED', 'HIDDEN'] &&
+        isValidTimestamp(data.createdAt);
+    }
+
+    // Public Review Record (Strictly 4 & 5 Star Reviews ONLY, ZERO Phone Numbers Allowed)
+    function isValidPublicReview(data) {
+      return data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
+        data.rating is int && data.rating >= 4 && data.rating <= 5 &&
+        data.message is string && data.message.size() >= 3 && data.message.size() <= 1000 &&
+        (!('productName' in data) || (data.productName is string && data.productName.size() <= 140)) &&
+        data.verified is bool &&
+        isValidTimestamp(data.createdAt);
+    }
+
+    // Public Service Request Submission (Write-Only for Public, Read/Update/Delete Admin-Only)
+    function isValidPublicServiceRequest(data) {
+      return data.ticketNumber is string && data.ticketNumber.size() >= 3 && data.ticketNumber.size() <= 40 &&
+        data.unitId is string && data.unitId.size() <= 80 &&
+        data.unitName is string && data.unitName.size() >= 1 && data.unitName.size() <= 160 &&
+        data.issue is string && data.issue.size() >= 2 && data.issue.size() <= 120 &&
+        data.notes is string && data.notes.size() >= 2 && data.notes.size() <= 600 &&
+        (!('contactPhone' in data) || (data.contactPhone is string && data.contactPhone.size() <= 25)) &&
+        data.status is string && data.status in ['Logged', 'Scheduled', 'Resolved'] &&
+        isValidTimestamp(data.createdAt);
+    }
+
+    // Dynamic Business & App Settings (Public Read, Admin-Only Write)
+    function isValidBusinessConfig(data) {
+      return data.businessName is string && data.businessName.size() >= 1 && data.businessName.size() <= 120 &&
+        data.tagline is string && data.tagline.size() <= 200 &&
+        data.aboutText is string && data.aboutText.size() <= 1200 &&
+        data.address is string && data.address.size() <= 300 &&
+        data.email is string && data.email.size() <= 150 &&
+        data.gstin is string && data.gstin.size() <= 40 &&
+        data.businessPhone is string && data.businessPhone.size() <= 30 &&
+        data.personalPhone is string && data.personalPhone.size() <= 30 &&
+        data.whatsappNumber is string && data.whatsappNumber.size() <= 30 &&
+        isOptionalHttpsUrl(data.googleMapsUrl) &&
+        data.googleRating is number && data.googleRating >= 1 && data.googleRating <= 5 &&
+        data.googleReviewCount is string && data.googleReviewCount.size() <= 40 &&
+        isOptionalHttpsUrl(data.googleReviewLink) &&
+        isOptionalHttpsUrl(data.websiteUrl) &&
+        isOptionalHttpsUrl(data.instagramUrl) &&
+        isOptionalHttpsUrl(data.facebookUrl) &&
+        isOptionalHttpsUrl(data.youtubeUrl) &&
+        data.products is list && data.products.size() <= 30 &&
+        data.updatedByUid is string && data.updatedByUid == request.auth.uid &&
         isValidTimestamp(data.updatedAt);
     }
 
@@ -142,7 +213,8 @@ service cloud.firestore {
         data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 200 &&
         data.eventType is string && data.eventType in [
           'LOGIN_VERIFIED', 'CONFIG_UPDATED', 'WARRANTY_MODIFIED',
-          'TICKET_UPDATED', 'HUB_UPDATED', 'INVOICE_GENERATED', 'SECURITY_ALERT', 'PASSWORD_RESET'
+          'TICKET_UPDATED', 'HUB_UPDATED', 'INVOICE_GENERATED',
+          'REVIEW_MODERATED', 'SETTINGS_UPDATED', 'SECURITY_ALERT', 'PASSWORD_RESET'
         ] &&
         data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 500 &&
         data.severity is string && data.severity in ['INFO', 'WARNING', 'CRITICAL'] &&
@@ -205,7 +277,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 4. PUBLIC TRUST DIRECTORY (Public Read-Only, Admin-Only Write, ZERO Phone/Address/Bill Fields)
+    // 4. PUBLIC TRUST DIRECTORY (Public Read-Only, Admin-Only Write, ZERO Full Phone/Address/Bill Fields)
     // =========================================================================
     match /public_units/{unitId} {
       allow get, list: if true;
@@ -218,7 +290,7 @@ service cloud.firestore {
           'installDate', 'expiryDate', 'status', 'updatedAt'
         ]) &&
         incoming().keys().hasOnly([
-          'customerName', 'modelName', 'hardwareType', 'quantity',
+          'customerName', 'maskedPhone', 'modelName', 'hardwareType', 'quantity',
           'installDate', 'expiryDate', 'status', 'updatedAt'
         ]) &&
         isValidPublicUnit(incoming());
@@ -227,7 +299,59 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 5. PRIVATE ADMIN-ONLY VAULTS (Customer Phone Numbers, Places, & Bills)
+    // 5. SMART CUSTOMER REVIEWS (All Reviews Private; ONLY 4★ & 5★ Public Without Phone)
+    // =========================================================================
+    match /private_reviews/{reviewId} {
+      allow get, list: if isAdmin();
+
+      allow create: if isValidId(reviewId) &&
+        hasValidKeyCount() &&
+        incoming().keys().hasAll(['customerName', 'phoneNumber', 'rating', 'message', 'status', 'createdAt']) &&
+        incoming().keys().hasOnly(['customerName', 'phoneNumber', 'rating', 'message', 'productName', 'status', 'createdAt']) &&
+        isValidPrivateReview(incoming()) &&
+        incoming().status == 'SUBMITTED';
+
+      allow update, delete: if isAdmin() && isValidId(reviewId);
+    }
+
+    match /public_reviews/{reviewId} {
+      allow get, list: if resource.data.rating >= 4;
+
+      allow create: if isValidId(reviewId) &&
+        hasValidKeyCount() &&
+        incoming().keys().hasAll(['customerName', 'rating', 'message', 'verified', 'createdAt']) &&
+        incoming().keys().hasOnly(['customerName', 'rating', 'message', 'productName', 'verified', 'createdAt']) &&
+        isValidPublicReview(incoming()) &&
+        (isAdmin() || incoming().verified == false);
+
+      allow update: if isAdmin() &&
+        isValidId(reviewId) &&
+        hasValidKeyCount() &&
+        incoming().keys().hasAll(['customerName', 'rating', 'message', 'verified', 'createdAt']) &&
+        incoming().keys().hasOnly(['customerName', 'rating', 'message', 'productName', 'verified', 'createdAt']) &&
+        isValidPublicReview(incoming());
+
+      allow delete: if isAdmin() && isValidId(reviewId);
+    }
+
+    // =========================================================================
+    // 6. PRIVATE SERVICE TICKETS (Write-Only by Visitors, Read/Manage Admin-Only)
+    // =========================================================================
+    match /private_service_requests/{reqId} {
+      allow get, list: if isAdmin();
+
+      allow create: if isValidId(reqId) &&
+        hasValidKeyCount() &&
+        incoming().keys().hasAll(['ticketNumber', 'unitId', 'unitName', 'issue', 'notes', 'status', 'createdAt']) &&
+        incoming().keys().hasOnly(['ticketNumber', 'unitId', 'unitName', 'issue', 'notes', 'contactPhone', 'status', 'createdAt']) &&
+        isValidPublicServiceRequest(incoming()) &&
+        incoming().status in ['Logged', 'Scheduled'];
+
+      allow update, delete: if isAdmin() && isValidId(reqId);
+    }
+
+    // =========================================================================
+    // 7. PRIVATE ADMIN-ONLY VAULTS (Customer Phone Numbers, Places, Bills & Drive Webhook)
     // =========================================================================
     match /private_customers/{customerId} {
       allow get, list: if isAdmin();
@@ -277,6 +401,7 @@ service cloud.firestore {
           'invoiceNo', 'customerId', 'customerName', 'mobileNumber', 'address',
           'modelName', 'hardwareType', 'quantity', 'unitPrice', 'discountPct',
           'taxPct', 'grandTotal', 'status', 'palette', 'invoiceDate', 'dueDate',
+          'warrantyStartDate', 'warrantyExpiryDate', 'syncToCustomerLive',
           'driveSaved', 'driveFileUrl', 'createdAt', 'updatedAt'
         ]) &&
         isValidPrivateInvoice(incoming());
@@ -290,8 +415,12 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(invoiceId);
     }
 
+    match /adminSecrets/{secretId} {
+      allow get, list, create, update, delete: if isAdmin() && isValidId(secretId);
+    }
+
     // =========================================================================
-    // 6. ADMIN & ECOSYSTEM CONFIG (Public Read for App Config & Hub Apps; Admin-Only Write)
+    // 8. ADMIN & DYNAMIC BUSINESS CONFIG (Public Read; Admin-Only Write)
     // =========================================================================
     match /admins/{adminId} {
       allow get, list: if isAdmin();
@@ -312,6 +441,31 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly(['email', 'role', 'active', 'updatedAt']);
 
       allow delete: if isAdmin() && isValidId(adminId) && request.auth.uid != adminId;
+    }
+
+    match /businessConfig/{configId} {
+      allow get, list: if true;
+
+      allow create, update: if isAdmin() &&
+        isValidId(configId) &&
+        hasValidKeyCount() &&
+        incoming().keys().hasAll([
+          'businessName', 'tagline', 'aboutText', 'address', 'email', 'gstin',
+          'businessPhone', 'personalPhone', 'whatsappNumber',
+          'googleMapsUrl', 'googleRating', 'googleReviewCount', 'googleReviewLink',
+          'websiteUrl', 'instagramUrl', 'facebookUrl', 'youtubeUrl',
+          'products', 'updatedByUid', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'businessName', 'tagline', 'aboutText', 'address', 'email', 'gstin',
+          'businessPhone', 'personalPhone', 'whatsappNumber',
+          'googleMapsUrl', 'googleRating', 'googleReviewCount', 'googleReviewLink',
+          'websiteUrl', 'instagramUrl', 'facebookUrl', 'youtubeUrl',
+          'products', 'updatedByUid', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidBusinessConfig(incoming());
+
+      allow delete: if isAdmin() && isValidId(configId);
     }
 
     match /appConfig/{configId} {
@@ -379,7 +533,9 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // 7. Customer Root Document & Subcollections (Strict Owner UID Isolation + Zero User Listing)
+    // =========================================================================
+    // 9. Customer Root Document & Subcollections (Strict Owner UID Isolation + Zero User Listing)
+    // =========================================================================
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if false;

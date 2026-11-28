@@ -1,6 +1,6 @@
 {
   "name": "AquaVault",
-  "description": "Premium customer portal for Water Level Controllers and Water Stoppers featuring live warranty countdown analytics, digital bills, service requests, Hisab-Kitab calculator, cloud-synced personal notepad, future apps hub, and DPDP Act privacy controls.",
+  "description": "AGNI VOLT ELECTRONIC Automated Water Level Controller & Water Stopper PWA featuring Customer Live active warranties, smart 4-5 star customer reviews, permanent Google Drive billing, dynamic product & business settings, and zero-trust Firebase security.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

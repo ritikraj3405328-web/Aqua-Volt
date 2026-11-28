@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aquavault-cache-v10';
+const CACHE_NAME = 'aquavault-cache-v11';
 const ASSETS = [
   './',
   './index.html',
@@ -6,17 +6,16 @@ const ASSETS = [
   './invoice.html',
   './hub.html',
   './privacy.html',
-  './styles.css?v=10',
-  './invoice-engine.js?v=10',
-  './app.js?v=10',
+  './styles.css?v=11',
+  './invoice-engine.js?v=11',
+  './app.js?v=11',
   './firebase-config.js',
   './manifest.webmanifest',
   './assets/icon-192.png',
   './assets/icon-512.png',
   './assets/app-icon.jpg',
-  './assets/hero-aquavault.jpg',
-  './assets/device-controller.jpg',
-  './assets/device-stopper.jpg'
+  './assets/hero-controller.jpg',
+  './assets/crystal-water.jpg'
 ];
 
 self.addEventListener('install', (event) => {

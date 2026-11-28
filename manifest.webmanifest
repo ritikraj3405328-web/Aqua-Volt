@@ -1,15 +1,15 @@
 {
   "id": "./",
-  "name": "AquaVault — Smart Water Protection",
-  "short_name": "AquaVault",
-  "description": "Smart Water Level Controller & Water Stopper customer vault with live day-by-day warranty countdown, official GST digital bills, one-click service, Hisab-Kitab calculator, and auto-synced notepad.",
+  "name": "AGNI VOLT ELECTRONIC — Water Level Controller",
+  "short_name": "Agni Volt",
+  "description": "AGNI VOLT ELECTRONIC Automated Water Level Controller & Water Stopper PWA featuring Customer Live active warranties, smart 4-5 star customer reviews, dynamic product pricing, and permanent Google Drive billing.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#06060A",
   "theme_color": "#6D28D9",
-  "categories": ["utilities", "lifestyle", "productivity"],
+  "categories": ["utilities", "business", "productivity"],
   "icons": [
     {
       "src": "assets/icon-192.png",

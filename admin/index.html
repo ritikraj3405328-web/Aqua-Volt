@@ -8,8 +8,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="AquaVault Admin" />
-  <title>AquaVault Admin — Executive Control &amp; Security</title>
+  <meta name="apple-mobile-web-app-title" content="AGNI VOLT Admin" />
+  <title>AGNI VOLT ELECTRONIC — Admin Command Center</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="../assets/icon-192.png" />
   <link rel="apple-touch-icon" href="../assets/icon-192.png" />
@@ -22,8 +22,7 @@
       if (t === 'light' || t === 'dark') {
         document.documentElement.setAttribute('data-theme', t);
       }
-      // Self-healing cache purge for v10 to eliminate any stale cached blank screens on GitHub Pages
-      var genKey = 'aquavault_admin_cache_gen_v10';
+      var genKey = 'aquavault_admin_cache_gen_v11';
       if (!localStorage.getItem(genKey)) {
         localStorage.setItem(genKey, '1');
         if ('serviceWorker' in navigator) {
@@ -34,7 +33,7 @@
         if ('caches' in window) {
           caches.keys().then(function(keys) {
             keys.forEach(function(k) {
-              if (k !== 'aquavault-admin-v10') caches.delete(k);
+              if (k !== 'aquavault-admin-v11') caches.delete(k);
             });
           }).catch(function(){});
         }
@@ -57,17 +56,16 @@
       }
     };
   </script>
-  <link rel="stylesheet" href="admin.css?v=10" />
+  <link rel="stylesheet" href="admin.css?v=11" />
 </head>
 <body>
   <div id="adminRoot">
-    <!-- Pre-rendered instant fallback shell so the page is NEVER blank even at 0ms or on slow mobile networks -->
     <div class="auth-viewport">
       <div class="auth-top-bar">
         <div class="auth-brand">
-          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AquaVault Admin" width="40" height="40" /></div>
+          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AGNI VOLT Admin" width="40" height="40" /></div>
           <div>
-            <div style="font-size:15px;font-weight:800;letter-spacing:-0.02em;">AquaVault Admin</div>
+            <div style="font-size:15px;font-weight:800;letter-spacing:-0.02em;">AGNI VOLT Admin</div>
             <div style="font-size:10.5px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--primary);">Firebase Protected Console</div>
           </div>
         </div>
@@ -78,7 +76,7 @@
           <span class="shield-chip emerald">30m Auto-Logout Guard</span>
         </div>
         <h1 class="auth-title serif">Admin Login</h1>
-        <p class="auth-sub">Loading AquaVault Admin Security Console...</p>
+        <p class="auth-sub">Loading AGNI VOLT ELECTRONIC Admin Security Console...</p>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <span style="font-size:11.5px;color:var(--ink-tertiary);">Stuck on an old cached version?</span>
           <button type="button" class="btn btn-sm btn-soft" onclick="window.resetAdminCacheAndReload()">Refresh &amp; Clear Cache</button>
@@ -86,6 +84,6 @@
       </div>
     </div>
   </div>
-  <script type="module" src="admin.js?v=10"></script>
+  <script type="module" src="admin.js?v=11"></script>
 </body>
 </html>

@@ -55,7 +55,8 @@ test("Public vs Private Separation: public_units is public read-only and blocks 
 
   const validPublicUnit = {
     customerName: "Rajesh Verma",
-    modelName: "AquaVault Pro-X7 Dual Tank Controller",
+    maskedPhone: "98XXXXXX10",
+    modelName: "AgniVolt Pro-X7 Dual Tank Controller",
     hardwareType: "Water Level Controller",
     quantity: 2,
     installDate: "2026-04-01",
@@ -68,10 +69,16 @@ test("Public vs Private Separation: public_units is public read-only and blocks 
   await assertFails(unauthDb.collection("public_units").doc("cust_1").set(validPublicUnit));
   await assertFails(aliceDb.collection("public_units").doc("cust_1").set(validPublicUnit));
 
-  // Admin CAN write to public_units
+  // Admin CAN write to public_units with maskedPhone
   await assertSucceeds(adminDb.collection("public_units").doc("cust_1").set(validPublicUnit));
 
-  // Even Admin CANNOT accidentally write mobileNumber or address into public_units
+  // Even Admin CANNOT accidentally write unmasked digits into maskedPhone or mobileNumber/address into public_units
+  await assertFails(
+    adminDb.collection("public_units").doc("cust_raw_phone").set({
+      ...validPublicUnit,
+      maskedPhone: "9876543210",
+    })
+  );
   await assertFails(
     adminDb.collection("public_units").doc("cust_leak").set({
       ...validPublicUnit,
@@ -88,7 +95,7 @@ test("Public vs Private Separation: public_units is public read-only and blocks 
     customerName: "Rajesh Verma",
     mobileNumber: "+91 98765 43210",
     address: "Indiranagar, Bengaluru",
-    modelName: "AquaVault Pro-X7 Dual Tank Controller",
+    modelName: "AgniVolt Pro-X7 Dual Tank Controller",
     hardwareType: "Water Level Controller",
     quantity: 2,
     serialNumber: "AV-WLC-88412",
@@ -97,7 +104,7 @@ test("Public vs Private Separation: public_units is public read-only and blocks 
     warrantyDays: 365,
     basePrice: 8450,
     gstRate: 18,
-    invoiceNo: "INV-AQV-2026-1104",
+    invoiceNo: "INV-AV-2026-1104",
     createdAt: now,
     updatedAt: now,
   };
@@ -114,12 +121,12 @@ test("Public vs Private Separation: public_units is public read-only and blocks 
 
   // Private Invoices Vault: strictly Admin-UID only
   const validPrivateInvoice = {
-    invoiceNo: "INV-AQV-2026-1104",
+    invoiceNo: "INV-AV-2026-1104",
     customerId: "cust_1",
     customerName: "Rajesh Verma",
     mobileNumber: "+91 98765 43210",
     address: "Indiranagar, Bengaluru",
-    modelName: "AquaVault Pro-X7 Dual Tank Controller",
+    modelName: "AgniVolt Pro-X7 Dual Tank Controller",
     hardwareType: "Water Level Controller",
     quantity: 2,
     unitPrice: 8450,
@@ -130,6 +137,9 @@ test("Public vs Private Separation: public_units is public read-only and blocks 
     palette: "violet",
     invoiceDate: "2026-11-27",
     dueDate: "2026-12-11",
+    warrantyStartDate: "2026-11-27",
+    warrantyExpiryDate: "2027-11-27",
+    syncToCustomerLive: true,
     driveSaved: true,
     createdAt: now,
     updatedAt: now,
@@ -152,9 +162,9 @@ test("CustomerProfile: owner create/read/update succeeds; unauth, cross-user, gh
 
   const validProfile = {
     userId: ALICE_UID,
-    displayName: "Ritik Raj",
+    displayName: "Customer Name",
     email: "alice@example.com",
-    customerCode: "AQV-2026-8419",
+    customerCode: "AV-2026-8419",
     phone: "+91 98765 43210",
     address: "42 Park Avenue, Bengaluru",
     darkModeEnabled: false,
@@ -233,7 +243,7 @@ test("Strict Anti-Hacker Rules: blocks non-admin write on appConfig/hubApps, all
     name: "Bad Link", category: "Website", desc: "XSS test", url: "javascript:alert(1)", icon: "globe", enabled: true, sortOrder: 1, createdAt: now, updatedAt: now
   }));
   await assertSucceeds(adminDb.collection("hubApps").doc("sellgst_pro").set({
-    name: "SellGst-Pro Billing Suite", category: "New App", desc: "Instant GST billing and inventory suite", url: "https://ritikraj3405328-web.github.io/SellGst-Pro/", icon: "bolt", enabled: true, sortOrder: 1, createdAt: now, updatedAt: now
+    name: "AgniVolt Billing Suite", category: "New App", desc: "Instant GST billing and inventory suite", url: "https://agnivoltelectronic.example/billing", icon: "bolt", enabled: true, sortOrder: 1, createdAt: now, updatedAt: now
   }));
   await assertSucceeds(unauthDb.collection("hubApps").get());
   await assertFails(aliceDb.collection("hubApps").doc("sellgst_pro").delete());
@@ -246,4 +256,126 @@ test("Strict Anti-Hacker Rules: blocks non-admin write on appConfig/hubApps, all
   await assertFails(otherDb.collection("adminAuditLogs").doc("log_1").get());
   await assertFails(adminDb.collection("adminAuditLogs").doc("log_1").update({ summary: "Tampered" }));
   await assertFails(adminDb.collection("adminAuditLogs").doc("log_1").delete());
+});
+
+// 4. Smart Customer Reviews (1-5★ in Admin-only private_reviews; strictly 4-5★ zero-phone in public_reviews)
+test("Smart Reviews: visitors can submit 1-5★ to private_reviews (Admin-only read) and ONLY 4-5★ without phone to public_reviews", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
+  const now = pastDate(5000);
+
+  // Low rating (2★) allowed in private_reviews for Admin follow-up, but CANNOT be read publicly
+  await assertSucceeds(unauthDb.collection("private_reviews").doc("rev_low").set({
+    customerName: "Suresh",
+    phoneNumber: "9876543210",
+    rating: 2,
+    message: "Need sensor wire check",
+    productName: "AgniVolt Pro Controller",
+    status: "SUBMITTED",
+    createdAt: now,
+  }));
+
+  await assertFails(unauthDb.collection("private_reviews").doc("rev_low").get());
+  await assertFails(unauthDb.collection("private_reviews").get());
+  await assertFails(aliceDb.collection("private_reviews").get());
+  await assertSucceeds(adminDb.collection("private_reviews").get());
+
+  // Public reviews REJECT rating < 4 and REJECT any phoneNumber field
+  await assertFails(unauthDb.collection("public_reviews").doc("rev_low").set({
+    customerName: "Suresh",
+    rating: 3,
+    message: "Average experience",
+    productName: "AgniVolt Pro Controller",
+    verified: false,
+    createdAt: now,
+  }));
+  await assertFails(unauthDb.collection("public_reviews").doc("rev_phone_leak").set({
+    customerName: "Anita",
+    phoneNumber: "9876543210",
+    rating: 5,
+    message: "Great product!",
+    verified: false,
+    createdAt: now,
+  }));
+
+  // 5★ review without phoneNumber succeeds publicly and can be queried with rating >= 4
+  await assertSucceeds(unauthDb.collection("public_reviews").doc("rev_5star").set({
+    customerName: "Anita",
+    rating: 5,
+    message: "Automatic motor cut-off works flawlessly.",
+    productName: "AgniVolt Pro Controller",
+    verified: false,
+    createdAt: now,
+  }));
+  await assertSucceeds(unauthDb.collection("public_reviews").where("rating", ">=", 4).get());
+  await assertFails(unauthDb.collection("public_reviews").doc("rev_5star").delete());
+  await assertSucceeds(adminDb.collection("public_reviews").doc("rev_5star").update({
+    customerName: "Anita",
+    rating: 5,
+    message: "Automatic motor cut-off works flawlessly.",
+    productName: "AgniVolt Pro Controller",
+    verified: true,
+    createdAt: now,
+  }));
+});
+
+// 5. Dynamic Business Config, Admin Secrets & Write-Only Service Requests
+test("BusinessConfig, AdminSecrets & ServiceRequests: public read on businessConfig, strict Admin lock on adminSecrets, write-only service requests", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
+  const now = pastDate(5000);
+
+  const validBusinessConfig = {
+    businessName: "AGNI VOLT ELECTRONIC",
+    tagline: "Automated Water Level Controller & Smart Pump Protection",
+    aboutText: "Precision water automation systems engineered for Indian homes and apartments.",
+    address: "Industrial Area, Phase 2",
+    email: "support@agnivoltelectronic.in",
+    gstin: "",
+    businessPhone: "+91 90000 00001",
+    personalPhone: "+91 90000 00002",
+    whatsappNumber: "919000000001",
+    googleMapsUrl: "https://maps.google.com/?q=Agni+Volt+Electronic",
+    googleRating: 4.9,
+    googleReviewCount: "140+ Google Reviews",
+    googleReviewLink: "https://maps.google.com/?q=Agni+Volt+Electronic",
+    websiteUrl: "https://agnivoltelectronic.in",
+    instagramUrl: "",
+    facebookUrl: "",
+    youtubeUrl: "",
+    products: [{ id: "wlc_pro", name: "AgniVolt Pro Controller", price: 3499 }],
+    updatedByUid: ADMIN_UID,
+    updatedAt: now,
+  };
+
+  await assertFails(unauthDb.collection("businessConfig").doc("main").set({ ...validBusinessConfig, updatedByUid: "anon" }));
+  await assertFails(aliceDb.collection("businessConfig").doc("main").set({ ...validBusinessConfig, updatedByUid: ALICE_UID }));
+  await assertFails(adminDb.collection("businessConfig").doc("main").set({ ...validBusinessConfig, googleMapsUrl: "javascript:alert(1)" }));
+  await assertSucceeds(adminDb.collection("businessConfig").doc("main").set(validBusinessConfig));
+  await assertSucceeds(unauthDb.collection("businessConfig").doc("main").get());
+
+  // AdminSecrets: strictly Admin-only read & write
+  await assertFails(unauthDb.collection("adminSecrets").doc("googleDrive").set({ driveWebhookUrl: "https://script.google.com/macros/s/abc/exec" }));
+  await assertFails(aliceDb.collection("adminSecrets").doc("googleDrive").set({ driveWebhookUrl: "https://script.google.com/macros/s/abc/exec" }));
+  await assertSucceeds(adminDb.collection("adminSecrets").doc("googleDrive").set({ driveWebhookUrl: "https://script.google.com/macros/s/abc/exec", updatedAt: now }));
+  await assertFails(unauthDb.collection("adminSecrets").doc("googleDrive").get());
+  await assertFails(aliceDb.collection("adminSecrets").doc("googleDrive").get());
+  await assertSucceeds(adminDb.collection("adminSecrets").doc("googleDrive").get());
+
+  // Public Service Requests: write-only by visitors, read/manage Admin-only
+  await assertSucceeds(unauthDb.collection("private_service_requests").doc("srv_1").set({
+    ticketNumber: "SRV-AV-402",
+    unitId: "cust_1",
+    unitName: "AgniVolt Pro",
+    issue: "Sensor Probe Check",
+    notes: "Overhead tank high sensor checkup",
+    contactPhone: "9876543210",
+    status: "Logged",
+    createdAt: now,
+  }));
+  await assertFails(unauthDb.collection("private_service_requests").get());
+  await assertFails(aliceDb.collection("private_service_requests").get());
+  await assertSucceeds(adminDb.collection("private_service_requests").get());
 });

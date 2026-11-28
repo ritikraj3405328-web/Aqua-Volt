@@ -318,12 +318,136 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "PublicUnit": {
+      "title": "PublicUnit",
+      "description": "Public active warranty unit displayed in Customer Live with masked phone number and zero sensitive billing fields.",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "maskedPhone": { "type": "string", "description": "Masked phone number e.g. 98XXXXXX45" },
+        "modelName": { "type": "string" },
+        "hardwareType": { "type": "string", "enum": ["controller", "stopper", "Water Level Controller", "Water Stopper"] },
+        "quantity": { "type": "integer" },
+        "installDate": { "type": "string" },
+        "expiryDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "EXPIRED"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerName", "modelName", "hardwareType", "quantity", "installDate", "expiryDate", "status", "updatedAt"]
+    },
+    "PrivateReview": {
+      "title": "PrivateReview",
+      "description": "All 1-to-5 star customer reviews with customer phone number; readable strictly by Admin.",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "message": { "type": "string" },
+        "productName": { "type": "string" },
+        "status": { "type": "string", "enum": ["SUBMITTED", "REVIEWED", "RESOLVED", "HIDDEN"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerName", "phoneNumber", "rating", "message", "status", "createdAt"]
+    },
+    "PublicReview": {
+      "title": "PublicReview",
+      "description": "Strictly 4-star and 5-star customer reviews shown publicly without any phone numbers.",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "rating": { "type": "integer", "minimum": 4, "maximum": 5 },
+        "message": { "type": "string" },
+        "productName": { "type": "string" },
+        "verified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerName", "rating", "message", "verified", "createdAt"]
+    },
+    "PublicServiceRequest": {
+      "title": "PublicServiceRequest",
+      "description": "Visitor service request ticket (write-only for public; read/update/delete Admin-only).",
+      "type": "object",
+      "properties": {
+        "ticketNumber": { "type": "string" },
+        "unitId": { "type": "string" },
+        "unitName": { "type": "string" },
+        "issue": { "type": "string" },
+        "notes": { "type": "string" },
+        "contactPhone": { "type": "string" },
+        "status": { "type": "string", "enum": ["Logged", "Scheduled", "Resolved"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ticketNumber", "unitId", "unitName", "issue", "notes", "status", "createdAt"]
+    },
+    "BusinessConfig": {
+      "title": "BusinessConfig",
+      "description": "Dynamic business settings, product catalog, contact numbers, Google Maps & rating, and social links.",
+      "type": "object",
+      "properties": {
+        "businessName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "aboutText": { "type": "string" },
+        "address": { "type": "string" },
+        "email": { "type": "string" },
+        "gstin": { "type": "string" },
+        "businessPhone": { "type": "string" },
+        "personalPhone": { "type": "string" },
+        "whatsappNumber": { "type": "string" },
+        "googleMapsUrl": { "type": "string" },
+        "googleRating": { "type": "number" },
+        "googleReviewCount": { "type": "string" },
+        "googleReviewLink": { "type": "string" },
+        "websiteUrl": { "type": "string" },
+        "instagramUrl": { "type": "string" },
+        "facebookUrl": { "type": "string" },
+        "youtubeUrl": { "type": "string" },
+        "products": { "type": "array" },
+        "updatedByUid": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["businessName", "tagline", "aboutText", "address", "email", "gstin", "businessPhone", "personalPhone", "whatsappNumber", "googleMapsUrl", "googleRating", "googleReviewCount", "googleReviewLink", "websiteUrl", "instagramUrl", "facebookUrl", "youtubeUrl", "products", "updatedByUid", "updatedAt"]
+    },
+    "AdminSecret": {
+      "title": "AdminSecret",
+      "description": "Strictly Admin-only private credentials and Apps Script webhook configuration.",
+      "type": "object",
+      "properties": {
+        "driveWebhookUrl": { "type": "string" },
+        "driveSyncSecret": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "firestore": {
+    "/public_units/{unitId}": {
+      "schema": { "$ref": "#/entities/PublicUnit" },
+      "description": "Public active warranty unit list (Customer Live) with masked phone numbers."
+    },
+    "/private_reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/PrivateReview" },
+      "description": "Private 1-to-5 star review inbox including customer phone numbers (Admin-only read)."
+    },
+    "/public_reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/PublicReview" },
+      "description": "Public 4-star and 5-star reviews only (zero phone numbers)."
+    },
+    "/private_service_requests/{reqId}": {
+      "schema": { "$ref": "#/entities/PublicServiceRequest" },
+      "description": "Write-only public service requests managed exclusively by Admin."
+    },
+    "/businessConfig/{configId}": {
+      "schema": { "$ref": "#/entities/BusinessConfig" },
+      "description": "Dynamic business settings, product catalog, contact numbers, Google Maps, and social links."
+    },
+    "/adminSecrets/{secretId}": {
+      "schema": { "$ref": "#/entities/AdminSecret" },
+      "description": "Strictly Admin-only Google Drive Apps Script webhook & sync secret."
+    },
     "/admins/{adminId}": {
       "schema": { "$ref": "#/entities/AdminRecord" },
-      "description": "Verified AquaVault administrator directory strictly protected against privilege escalation."
+      "description": "Verified administrator directory strictly protected against privilege escalation."
     },
     "/appConfig/{configId}": {
       "schema": { "$ref": "#/entities/AppGlobalConfig" },
