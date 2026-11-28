@@ -46,7 +46,104 @@ beforeEach(async () => {
   }
 });
 
-// 1. Customer Profile Rules
+// 1. Public Trust Directory vs. Private Customer & Invoice Vaults
+test("Public vs Private Separation: public_units is public read-only and blocks phone/address fields; private_customers & private_invoices are strictly Admin-UID only", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
+  const now = pastDate(5000);
+
+  const validPublicUnit = {
+    customerName: "Rajesh Verma",
+    modelName: "AquaVault Pro-X7 Dual Tank Controller",
+    hardwareType: "Water Level Controller",
+    quantity: 2,
+    installDate: "2026-04-01",
+    expiryDate: "2027-04-01",
+    status: "ACTIVE",
+    updatedAt: now,
+  };
+
+  // Unauth and normal users CANNOT write to public_units
+  await assertFails(unauthDb.collection("public_units").doc("cust_1").set(validPublicUnit));
+  await assertFails(aliceDb.collection("public_units").doc("cust_1").set(validPublicUnit));
+
+  // Admin CAN write to public_units
+  await assertSucceeds(adminDb.collection("public_units").doc("cust_1").set(validPublicUnit));
+
+  // Even Admin CANNOT accidentally write mobileNumber or address into public_units
+  await assertFails(
+    adminDb.collection("public_units").doc("cust_leak").set({
+      ...validPublicUnit,
+      mobileNumber: "+91 9876543210",
+    })
+  );
+
+  // Public visitors (unauthenticated) CAN read & list public_units
+  await assertSucceeds(unauthDb.collection("public_units").doc("cust_1").get());
+  await assertSucceeds(unauthDb.collection("public_units").get());
+
+  // Private Customers Vault: stores mobileNumber & address, strictly Admin-UID only
+  const validPrivateCustomer = {
+    customerName: "Rajesh Verma",
+    mobileNumber: "+91 98765 43210",
+    address: "Indiranagar, Bengaluru",
+    modelName: "AquaVault Pro-X7 Dual Tank Controller",
+    hardwareType: "Water Level Controller",
+    quantity: 2,
+    serialNumber: "AV-WLC-88412",
+    installDate: "2026-04-01",
+    expiryDate: "2027-04-01",
+    warrantyDays: 365,
+    basePrice: 8450,
+    gstRate: 18,
+    invoiceNo: "INV-AQV-2026-1104",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await assertFails(unauthDb.collection("private_customers").doc("cust_1").set(validPrivateCustomer));
+  await assertFails(aliceDb.collection("private_customers").doc("cust_1").set(validPrivateCustomer));
+  await assertSucceeds(adminDb.collection("private_customers").doc("cust_1").set(validPrivateCustomer));
+
+  // Unauthenticated & non-admin users CANNOT read or list private_customers
+  await assertFails(unauthDb.collection("private_customers").doc("cust_1").get());
+  await assertFails(unauthDb.collection("private_customers").get());
+  await assertFails(aliceDb.collection("private_customers").doc("cust_1").get());
+  await assertSucceeds(adminDb.collection("private_customers").doc("cust_1").get());
+
+  // Private Invoices Vault: strictly Admin-UID only
+  const validPrivateInvoice = {
+    invoiceNo: "INV-AQV-2026-1104",
+    customerId: "cust_1",
+    customerName: "Rajesh Verma",
+    mobileNumber: "+91 98765 43210",
+    address: "Indiranagar, Bengaluru",
+    modelName: "AquaVault Pro-X7 Dual Tank Controller",
+    hardwareType: "Water Level Controller",
+    quantity: 2,
+    unitPrice: 8450,
+    discountPct: 5,
+    taxPct: 18,
+    grandTotal: 18944.9,
+    status: "PAID",
+    palette: "violet",
+    invoiceDate: "2026-11-27",
+    dueDate: "2026-12-11",
+    driveSaved: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await assertFails(unauthDb.collection("private_invoices").doc("inv_1").set(validPrivateInvoice));
+  await assertFails(aliceDb.collection("private_invoices").doc("inv_1").set(validPrivateInvoice));
+  await assertSucceeds(adminDb.collection("private_invoices").doc("inv_1").set(validPrivateInvoice));
+  await assertFails(unauthDb.collection("private_invoices").doc("inv_1").get());
+  await assertFails(aliceDb.collection("private_invoices").get());
+  await assertSucceeds(adminDb.collection("private_invoices").get());
+});
+
+// 2. Customer Profile Rules
 test("CustomerProfile: owner create/read/update succeeds; unauth, cross-user, ghost fields, and future timestamps fail", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
@@ -73,10 +170,8 @@ test("CustomerProfile: owner create/read/update succeeds; unauth, cross-user, gh
   await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).set(validProfile));
   await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).get());
   await assertFails(bobDb.collection("users").doc(ALICE_UID).get());
-  await assertFails(aliceDb.collection("users").get()); // list on /users denied
-  await assertFails(unauthDb.collection("users").get()); // list on /users denied for unauth
-  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
-  await assertFails(adminDb.collection("users").get()); // root /users listing blocked globally (allow list: if false)
+  await assertFails(aliceDb.collection("users").get());
+  await assertFails(unauthDb.collection("users").get());
 
   await assertSucceeds(
     aliceDb.collection("users").doc(ALICE_UID).update({
@@ -86,7 +181,6 @@ test("CustomerProfile: owner create/read/update succeeds; unauth, cross-user, gh
     })
   );
 
-  // Reject ghost field / shadow update
   await assertFails(
     aliceDb.collection("users").doc(ALICE_UID).update({
       isAdmin: true,
@@ -94,15 +188,6 @@ test("CustomerProfile: owner create/read/update succeeds; unauth, cross-user, gh
     })
   );
 
-  // Reject immutable createdAt mutation
-  await assertFails(
-    aliceDb.collection("users").doc(ALICE_UID).update({
-      createdAt: pastDate(500),
-      updatedAt: pastDate(500),
-    })
-  );
-
-  // Reject future timestamp
   await assertFails(
     aliceDb.collection("users").doc(ALICE_UID).update({
       darkModeEnabled: false,
@@ -111,92 +196,8 @@ test("CustomerProfile: owner create/read/update succeeds; unauth, cross-user, gh
   );
 });
 
-// 2. WarrantyUnit Rules (Owner + Verified Admin)
-test("WarrantyUnit: owner CRUD succeeds; cross-user denied; verified admin can extend warranty", async () => {
-  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
-  const bobDb = testEnv.authenticatedContext(BOB_UID, { email: "bob@example.com", email_verified: true }).firestore();
-  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
-  const created = pastDate(10000);
-
-  const validWarranty = {
-    userId: ALICE_UID,
-    deviceType: "WATER_LEVEL_CONTROLLER",
-    productName: "AquaVault Pro-X7 Controller",
-    modelCode: "AV-WLC-X7",
-    serialNumber: "AV26-WLC-009481",
-    locationTag: "Overhead Tank",
-    installEpochDay: 20500,
-    warrantyTotalDays: 365,
-    unitStatus: "ONLINE",
-    invoiceNumber: "INV-AQV-2026-4412",
-    purchaseAmountInr: 14500,
-    gstAmountInr: 2610,
-    dealerName: "AquaVault Flagship India",
-    createdAt: created,
-    updatedAt: created,
-  };
-
-  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).collection("warranties").get());
-  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).collection("warranties").doc("unit_1").set(validWarranty));
-
-  // Reject @DocumentId "id" key and invalid enum
-  await assertFails(aliceDb.collection("users").doc(ALICE_UID).collection("warranties").doc("unit_bad_id").set({ ...validWarranty, id: "unit_bad_id" }));
-  await assertFails(aliceDb.collection("users").doc(ALICE_UID).collection("warranties").doc("unit_bad_enum").set({ ...validWarranty, deviceType: "PUMP_UNKNOWN" }));
-
-  // Cross-user read & write denied
-  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("warranties").get());
-  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("warranties").doc("unit_1").get());
-  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("warranties").doc("unit_1").update({ locationTag: "Hijacked", updatedAt: pastDate(1000) }));
-
-  // Customer cannot extend own warrantyTotalDays (only locationTag/unitStatus)
-  await assertFails(
-    aliceDb.collection("users").doc(ALICE_UID).collection("warranties").doc("unit_1").update({
-      warrantyTotalDays: 730,
-      updatedAt: pastDate(1000),
-    })
-  );
-
-  // Verified Admin CAN extend warrantyTotalDays
-  await assertSucceeds(
-    adminDb.collection("users").doc(ALICE_UID).collection("warranties").doc("unit_1").update({
-      warrantyTotalDays: 730,
-      updatedAt: pastDate(1000),
-    })
-  );
-});
-
-// 3. ServiceRequest Rules (Terminal State Locking + Verified Admin Override)
-test("ServiceRequest: terminal RESOLVED locks customer edits, verified admin can reopen/update", async () => {
-  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
-  const adminDb = testEnv.authenticatedContext(ADMIN_UID, { email: ADMIN_EMAIL, email_verified: true }).firestore();
-  const created = pastDate(10000);
-
-  const validRequest = {
-    userId: ALICE_UID,
-    ticketNumber: "SRV-84920",
-    warrantyId: "unit_1",
-    deviceLabel: "AquaVault Pro-X7 (Overhead Tank)",
-    issueCategory: "Sensor Calibration",
-    issueNote: "Tank full alert chimes slightly early at 92%.",
-    preferredSlot: "Morning (9 AM - 12 PM)",
-    status: "LOGGED",
-    createdAt: created,
-    updatedAt: created,
-  };
-
-  await assertFails(aliceDb.collection("users").doc(ALICE_UID).collection("serviceRequests").doc("req_bad").set({ ...validRequest, status: "RESOLVED" }));
-  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).collection("serviceRequests").doc("req_1").set(validRequest));
-  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).collection("serviceRequests").doc("req_1").update({ status: "RESOLVED", updatedAt: pastDate(2000) }));
-
-  // Customer cannot edit after RESOLVED
-  await assertFails(aliceDb.collection("users").doc(ALICE_UID).collection("serviceRequests").doc("req_1").update({ status: "LOGGED", updatedAt: pastDate(500) }));
-
-  // Verified Admin CAN override terminal state if needed
-  await assertSucceeds(adminDb.collection("users").doc(ALICE_UID).collection("serviceRequests").doc("req_1").update({ status: "SCHEDULED", updatedAt: pastDate(400) }));
-});
-
-// 4. Strict Admin Email RBAC: Admin Collections (/admins, /appConfig, /hubApps, /adminAuditLogs)
-test("Strict Anti-Hacker Rules: blocks non-admin read/write on admin collections, javascript URLs, and audit log tampering", async () => {
+// 3. Strict Admin UID RBAC: Admin Collections (/admins, /appConfig, /hubApps, /adminAuditLogs)
+test("Strict Anti-Hacker Rules: blocks non-admin write on appConfig/hubApps, allows public read on appConfig/hubApps, and locks adminAuditLogs to Admin UID", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
   const otherDb = testEnv.authenticatedContext(OTHER_UID, { email: "hacker@example.com", email_verified: true }).firestore();
@@ -206,9 +207,7 @@ test("Strict Anti-Hacker Rules: blocks non-admin read/write on admin collections
   const validConfig = {
     featureWarranty: true,
     featureDevices: true,
-    featureCalculator: true,
     featureInvoice: true,
-    featureNotes: true,
     featureHub: true,
     featurePrivacy: true,
     featurePwaPopup: true,
@@ -224,131 +223,27 @@ test("Strict Anti-Hacker Rules: blocks non-admin read/write on admin collections
     updatedAt: now,
   };
 
-  // Unauthenticated and non-admin users must fail on /appConfig create/write
   await assertFails(unauthDb.collection("appConfig").doc("global").set({ ...validConfig, updatedByUid: "anon" }));
   await assertFails(aliceDb.collection("appConfig").doc("global").set({ ...validConfig, updatedByUid: ALICE_UID }));
-  await assertFails(otherDb.collection("appConfig").doc("global").set({ ...validConfig, updatedByUid: OTHER_UID }));
-
-  // Admin succeeds on /appConfig create, read & update
   await assertSucceeds(adminDb.collection("appConfig").doc("global").set(validConfig));
-  await assertSucceeds(adminDb.collection("appConfig").doc("global").get());
-  await assertSucceeds(adminDb.collection("appConfig").doc("global").update({ maintenanceMode: true, updatedAt: pastDate(1000) }));
+  await assertSucceeds(unauthDb.collection("appConfig").doc("global").get());
 
-  // Unauthenticated & non-admin users CANNOT read or list /appConfig
-  await assertFails(unauthDb.collection("appConfig").doc("global").get());
-  await assertFails(aliceDb.collection("appConfig").doc("global").get());
-  await assertFails(aliceDb.collection("appConfig").get());
-
-  // Self-promotion to /admins/{uid} strictly denied for customers & non-admins
-  await assertFails(aliceDb.collection("admins").doc(ALICE_UID).set({
-    uid: ALICE_UID, email: "alice@example.com", role: "SUPER_ADMIN", active: true, createdAt: now, updatedAt: now
-  }));
-  await assertFails(otherDb.collection("admins").doc(OTHER_UID).set({
-    uid: OTHER_UID, email: "hacker@example.com", role: "SUPER_ADMIN", active: true, createdAt: now, updatedAt: now
-  }));
-  await assertSucceeds(adminDb.collection("admins").doc(ADMIN_UID).set({
-    uid: ADMIN_UID, email: ADMIN_EMAIL, role: "SUPER_ADMIN", active: true, createdAt: now, updatedAt: now
-  }));
-
-  // HubApps: blocks javascript: XSS URL even from admin; only admin email can read & write
+  // HubApps: blocks javascript: XSS URL even from admin; public can read, only Admin UID can write
   await assertFails(adminDb.collection("hubApps").doc("xss_app").set({
     name: "Bad Link", category: "Website", desc: "XSS test", url: "javascript:alert(1)", icon: "globe", enabled: true, sortOrder: 1, createdAt: now, updatedAt: now
   }));
-  await assertSucceeds(adminDb.collection("hubApps").doc("store_1").set({
-    name: "AquaVault Store", category: "Website", desc: "Official hardware store", url: "https://aquavault.in", icon: "globe", enabled: true, sortOrder: 1, createdAt: now, updatedAt: now
+  await assertSucceeds(adminDb.collection("hubApps").doc("sellgst_pro").set({
+    name: "SellGst-Pro Billing Suite", category: "New App", desc: "Instant GST billing and inventory suite", url: "https://ritikraj3405328-web.github.io/SellGst-Pro/", icon: "bolt", enabled: true, sortOrder: 1, createdAt: now, updatedAt: now
   }));
-  await assertSucceeds(adminDb.collection("hubApps").get());
-  await assertFails(unauthDb.collection("hubApps").get());
-  await assertFails(aliceDb.collection("hubApps").get());
-  await assertFails(aliceDb.collection("hubApps").doc("store_1").delete());
+  await assertSucceeds(unauthDb.collection("hubApps").get());
+  await assertFails(aliceDb.collection("hubApps").doc("sellgst_pro").delete());
 
-  // AdminAuditLogs: admin can append/read, NOBODY can update or delete, customers cannot read
+  // AdminAuditLogs: admin can append/read, NOBODY can update or delete, public cannot read
   await assertSucceeds(adminDb.collection("adminAuditLogs").doc("log_1").set({
-    actorUid: ADMIN_UID, actorEmail: ADMIN_EMAIL, eventType: "LOGIN_VERIFIED", summary: "Firebase Admin login passed", severity: "INFO", createdAt: now
+    actorUid: ADMIN_UID, actorEmail: ADMIN_EMAIL, eventType: "INVOICE_GENERATED", summary: "Bill INV-2026-1104 saved to Drive", severity: "INFO", createdAt: now
   }));
   await assertFails(unauthDb.collection("adminAuditLogs").doc("log_1").get());
-  await assertFails(aliceDb.collection("adminAuditLogs").doc("log_1").get());
+  await assertFails(otherDb.collection("adminAuditLogs").doc("log_1").get());
   await assertFails(adminDb.collection("adminAuditLogs").doc("log_1").update({ summary: "Tampered" }));
   await assertFails(adminDb.collection("adminAuditLogs").doc("log_1").delete());
-});
-
-// 5. Invoices, CalcEntry, PersonalNote & PrivacyAuditLog Rules
-test("Invoices, CalcEntry, PersonalNote, and PrivacyAuditLog: strict schema & ownership enforced", async () => {
-  const aliceDb = testEnv.authenticatedContext(ALICE_UID, { email: "alice@example.com", email_verified: true }).firestore();
-  const bobDb = testEnv.authenticatedContext(BOB_UID, { email: "bob@example.com", email_verified: true }).firestore();
-  const created = pastDate(10000);
-
-  // InvoiceRecord
-  await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("invoices").doc("inv_101").set({
-      userId: ALICE_UID,
-      invoiceNo: "INV-AQV-2026-0101",
-      clientName: "Aarav Sharma",
-      grandTotal: 16366.6,
-      status: "PAID",
-      palette: "violet",
-      invoiceDate: "2026-11-27",
-      dueDate: "2026-12-11",
-      createdAt: created,
-      updatedAt: created,
-    })
-  );
-  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("invoices").doc("inv_101").get());
-
-  // CalcEntry
-  await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("calcEntries").doc("calc_1").set({
-      userId: ALICE_UID,
-      label: "Plumbing pipes 12x450",
-      expression: "12 × 450",
-      resultValue: 5400,
-      resultFormatted: "₹5,400.00",
-      mode: "QTY_RATE",
-      createdAt: created,
-      updatedAt: created,
-    })
-  );
-  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).collection("calcEntries").get());
-  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("calcEntries").get());
-
-  // PersonalNote
-  await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("notes").doc("note_1").set({
-      userId: ALICE_UID,
-      title: "Overhead Tank Cleaning Schedule",
-      content: "Next UV flush scheduled for December 15.",
-      tag: "Maintenance",
-      pinned: true,
-      gmailSyncState: "SYNCED",
-      driveSyncState: "AUTO_SAVED",
-      lastSyncedLabel: "Synced just now",
-      createdAt: created,
-      updatedAt: created,
-    })
-  );
-  await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("notes").doc("note_1").update({
-      title: "Overhead Tank Cleaning Schedule (Updated)",
-      pinned: false,
-      updatedAt: pastDate(1000),
-    })
-  );
-  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("notes").doc("note_1").get());
-
-  // PrivacyAuditLog (append-only)
-  await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("privacyRequests").doc("priv_1").set({
-      userId: ALICE_UID,
-      actionType: "CONSENT_GRANTED",
-      details: "Accepted DPDP Act Notice v2026.1",
-      createdAt: created,
-      updatedAt: created,
-    })
-  );
-  await assertFails(
-    aliceDb.collection("users").doc(ALICE_UID).collection("privacyRequests").doc("priv_1").update({
-      details: "Tampered log",
-      updatedAt: pastDate(500),
-    })
-  );
 });

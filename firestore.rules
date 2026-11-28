@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Global Safety Net — Deny all unauthenticated or unmatched read/write access
+    // 1. Global Safety Net — Deny all unauthenticated or unmatched read/write access by default
     match /{document=**} {
       allow read, write: if false;
     }
@@ -15,12 +15,9 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Strict Server-Side Admin Gate — Verified by Firebase Auth UID (authenticated with Admin Password)
+    // Strict Server-Side Admin Gate — Exclusively Authorized Firebase Admin UID
     function isAdmin() {
-      return isSignedIn() && (
-        request.auth.uid == 'Y8zmDKBgubWIVvhufftRPPjG7HC3' ||
-        request.auth.token.email == 'YOUR_ADMIN_EMAIL@gmail.com'
-      );
+      return isSignedIn() && request.auth.uid == 'Y8zmDKBgubWIVvhufftRPPjG7HC3';
     }
 
     function isValidId(id) {
@@ -46,6 +43,58 @@ service cloud.firestore {
     }
 
     // 3. Entity Validation Blueprints
+    // Public Non-Sensitive Unit Record (Strictly ZERO phone numbers, addresses, or bills allowed)
+    function isValidPublicUnit(data) {
+      return data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120 &&
+        data.modelName is string && data.modelName.size() >= 1 && data.modelName.size() <= 140 &&
+        data.hardwareType is string && data.hardwareType in ['controller', 'stopper', 'Water Level Controller', 'Water Stopper'] &&
+        data.quantity is int && data.quantity >= 1 && data.quantity <= 1000 &&
+        data.installDate is string && data.installDate.size() >= 8 && data.installDate.size() <= 20 &&
+        data.expiryDate is string && data.expiryDate.size() >= 8 && data.expiryDate.size() <= 20 &&
+        data.status is string && data.status in ['ACTIVE', 'EXPIRED'] &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    // Private Admin-Only Customer & Warranty Record (Holds sensitive phone numbers & addresses)
+    function isValidPrivateCustomer(data) {
+      return data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120 &&
+        data.mobileNumber is string && data.mobileNumber.size() >= 3 && data.mobileNumber.size() <= 30 &&
+        data.address is string && data.address.size() >= 1 && data.address.size() <= 250 &&
+        data.modelName is string && data.modelName.size() >= 1 && data.modelName.size() <= 140 &&
+        data.hardwareType is string && data.hardwareType in ['controller', 'stopper', 'Water Level Controller', 'Water Stopper'] &&
+        data.quantity is int && data.quantity >= 1 && data.quantity <= 1000 &&
+        data.serialNumber is string && data.serialNumber.size() >= 1 && data.serialNumber.size() <= 80 &&
+        data.installDate is string && data.installDate.size() >= 8 && data.installDate.size() <= 20 &&
+        data.expiryDate is string && data.expiryDate.size() >= 8 && data.expiryDate.size() <= 20 &&
+        data.warrantyDays is int && data.warrantyDays >= 0 && data.warrantyDays <= 3650 &&
+        data.basePrice is number && data.basePrice >= 0 && data.basePrice <= 100000000 &&
+        data.gstRate is number && data.gstRate >= 0 && data.gstRate <= 50 &&
+        data.invoiceNo is string && data.invoiceNo.size() >= 1 && data.invoiceNo.size() <= 60 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    // Private Admin-Only Generated Invoice Record
+    function isValidPrivateInvoice(data) {
+      return data.invoiceNo is string && data.invoiceNo.size() >= 1 && data.invoiceNo.size() <= 60 &&
+        data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120 &&
+        data.mobileNumber is string && data.mobileNumber.size() <= 30 &&
+        data.address is string && data.address.size() <= 250 &&
+        data.modelName is string && data.modelName.size() >= 1 && data.modelName.size() <= 200 &&
+        data.quantity is int && data.quantity >= 1 && data.quantity <= 10000 &&
+        data.unitPrice is number && data.unitPrice >= 0 && data.unitPrice <= 100000000 &&
+        data.discountPct is number && data.discountPct >= 0 && data.discountPct <= 100 &&
+        data.taxPct is number && data.taxPct >= 0 && data.taxPct <= 50 &&
+        data.grandTotal is number && data.grandTotal >= 0 && data.grandTotal <= 1000000000 &&
+        data.status is string && data.status in ['PAID', 'PENDING', 'OVERDUE'] &&
+        data.palette is string && data.palette in ['violet', 'sapphire', 'emerald', 'crimson', 'gold', 'obsidian'] &&
+        data.invoiceDate is string && data.invoiceDate.size() >= 8 && data.invoiceDate.size() <= 20 &&
+        data.dueDate is string && data.dueDate.size() >= 8 && data.dueDate.size() <= 20 &&
+        data.driveSaved is bool &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
     function isValidAdminRecord(data, adminId) {
       return data.uid is string && data.uid == adminId &&
         data.email is string && data.email.size() >= 5 && data.email.size() <= 200 &&
@@ -59,9 +108,7 @@ service cloud.firestore {
     function isValidAppConfig(data) {
       return data.featureWarranty is bool &&
         data.featureDevices is bool &&
-        data.featureCalculator is bool &&
         data.featureInvoice is bool &&
-        data.featureNotes is bool &&
         data.featureHub is bool &&
         data.featurePrivacy is bool &&
         data.featurePwaPopup is bool &&
@@ -95,7 +142,7 @@ service cloud.firestore {
         data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 200 &&
         data.eventType is string && data.eventType in [
           'LOGIN_VERIFIED', 'CONFIG_UPDATED', 'WARRANTY_MODIFIED',
-          'TICKET_UPDATED', 'HUB_UPDATED', 'SECURITY_ALERT', 'PASSWORD_RESET'
+          'TICKET_UPDATED', 'HUB_UPDATED', 'INVOICE_GENERATED', 'SECURITY_ALERT', 'PASSWORD_RESET'
         ] &&
         data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 500 &&
         data.severity is string && data.severity in ['INFO', 'WARNING', 'CRITICAL'] &&
@@ -149,43 +196,6 @@ service cloud.firestore {
         isValidTimestamp(data.updatedAt);
     }
 
-    function isValidInvoiceRecord(data, userId) {
-      return data.userId is string && data.userId == userId &&
-        data.invoiceNo is string && data.invoiceNo.size() >= 1 && data.invoiceNo.size() <= 60 &&
-        data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 120 &&
-        data.grandTotal is number && data.grandTotal >= 0 && data.grandTotal <= 100000000 &&
-        data.status is string && data.status in ['PAID', 'PENDING', 'OVERDUE'] &&
-        data.palette is string && data.palette in ['violet', 'sapphire', 'emerald', 'crimson', 'gold', 'obsidian'] &&
-        data.invoiceDate is string && data.invoiceDate.size() >= 8 && data.invoiceDate.size() <= 20 &&
-        data.dueDate is string && data.dueDate.size() >= 8 && data.dueDate.size() <= 20 &&
-        isValidTimestamp(data.createdAt) &&
-        isValidTimestamp(data.updatedAt);
-    }
-
-    function isValidCalcEntry(data, userId) {
-      return data.userId is string && data.userId == userId &&
-        data.label is string && data.label.size() <= 120 &&
-        data.expression is string && data.expression.size() >= 1 && data.expression.size() <= 200 &&
-        data.resultValue is number && data.resultValue >= -1000000000000 && data.resultValue <= 1000000000000 &&
-        data.resultFormatted is string && data.resultFormatted.size() >= 1 && data.resultFormatted.size() <= 60 &&
-        data.mode is string && data.mode in ['STANDARD', 'QTY_RATE', 'SPLIT', 'MARGIN'] &&
-        isValidTimestamp(data.createdAt) &&
-        isValidTimestamp(data.updatedAt);
-    }
-
-    function isValidPersonalNote(data, userId) {
-      return data.userId is string && data.userId == userId &&
-        data.title is string && data.title.size() >= 1 && data.title.size() <= 150 &&
-        data.content is string && data.content.size() <= 20000 &&
-        data.tag is string && data.tag.size() <= 40 &&
-        data.pinned is bool &&
-        data.gmailSyncState is string && data.gmailSyncState in ['SYNCED', 'QUEUED', 'DISABLED'] &&
-        data.driveSyncState is string && data.driveSyncState in ['AUTO_SAVED', 'PENDING', 'OFFLINE_LOCAL'] &&
-        data.lastSyncedLabel is string && data.lastSyncedLabel.size() <= 80 &&
-        isValidTimestamp(data.createdAt) &&
-        isValidTimestamp(data.updatedAt);
-    }
-
     function isValidPrivacyAuditLog(data, userId) {
       return data.userId is string && data.userId == userId &&
         data.actionType is string && data.actionType in ['CONSENT_GRANTED', 'CONSENT_WITHDRAWN', 'DATA_EXPORT', 'DELETION_REQUESTED'] &&
@@ -194,7 +204,95 @@ service cloud.firestore {
         isValidTimestamp(data.updatedAt);
     }
 
-    // 4. Admin-Only Collections (Strict Admin Email Gate Only)
+    // =========================================================================
+    // 4. PUBLIC TRUST DIRECTORY (Public Read-Only, Admin-Only Write, ZERO Phone/Address/Bill Fields)
+    // =========================================================================
+    match /public_units/{unitId} {
+      allow get, list: if true;
+
+      allow create, update: if isAdmin() &&
+        isValidId(unitId) &&
+        hasValidKeyCount() &&
+        incoming().keys().hasAll([
+          'customerName', 'modelName', 'hardwareType', 'quantity',
+          'installDate', 'expiryDate', 'status', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'customerName', 'modelName', 'hardwareType', 'quantity',
+          'installDate', 'expiryDate', 'status', 'updatedAt'
+        ]) &&
+        isValidPublicUnit(incoming());
+
+      allow delete: if isAdmin() && isValidId(unitId);
+    }
+
+    // =========================================================================
+    // 5. PRIVATE ADMIN-ONLY VAULTS (Customer Phone Numbers, Places, & Bills)
+    // =========================================================================
+    match /private_customers/{customerId} {
+      allow get, list: if isAdmin();
+
+      allow create: if isAdmin() &&
+        isValidId(customerId) &&
+        hasValidKeyCount() &&
+        incoming().keys().hasAll([
+          'customerName', 'mobileNumber', 'address', 'modelName', 'hardwareType',
+          'quantity', 'serialNumber', 'installDate', 'expiryDate', 'warrantyDays',
+          'basePrice', 'gstRate', 'invoiceNo', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'customerName', 'mobileNumber', 'address', 'modelName', 'hardwareType',
+          'quantity', 'serialNumber', 'installDate', 'expiryDate', 'warrantyDays',
+          'basePrice', 'gstRate', 'invoiceNo', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidPrivateCustomer(incoming());
+
+      allow update: if isAdmin() &&
+        isValidId(customerId) &&
+        hasValidKeyCount() &&
+        isValidPrivateCustomer(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'customerName', 'mobileNumber', 'address', 'modelName', 'hardwareType',
+          'quantity', 'serialNumber', 'installDate', 'expiryDate', 'warrantyDays',
+          'basePrice', 'gstRate', 'invoiceNo', 'updatedAt'
+        ]);
+
+      allow delete: if isAdmin() && isValidId(customerId);
+    }
+
+    match /private_invoices/{invoiceId} {
+      allow get, list: if isAdmin();
+
+      allow create: if isAdmin() &&
+        isValidId(invoiceId) &&
+        hasValidKeyCount() &&
+        incoming().keys().hasAll([
+          'invoiceNo', 'customerName', 'mobileNumber', 'address', 'modelName',
+          'quantity', 'unitPrice', 'discountPct', 'taxPct', 'grandTotal',
+          'status', 'palette', 'invoiceDate', 'dueDate', 'driveSaved',
+          'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'invoiceNo', 'customerId', 'customerName', 'mobileNumber', 'address',
+          'modelName', 'hardwareType', 'quantity', 'unitPrice', 'discountPct',
+          'taxPct', 'grandTotal', 'status', 'palette', 'invoiceDate', 'dueDate',
+          'driveSaved', 'driveFileUrl', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidPrivateInvoice(incoming());
+
+      allow update: if isAdmin() &&
+        isValidId(invoiceId) &&
+        hasValidKeyCount() &&
+        isValidPrivateInvoice(incoming()) &&
+        incoming().createdAt == existing().createdAt;
+
+      allow delete: if isAdmin() && isValidId(invoiceId);
+    }
+
+    // =========================================================================
+    // 6. ADMIN & ECOSYSTEM CONFIG (Public Read for App Config & Hub Apps; Admin-Only Write)
+    // =========================================================================
     match /admins/{adminId} {
       allow get, list: if isAdmin();
 
@@ -217,14 +315,14 @@ service cloud.firestore {
     }
 
     match /appConfig/{configId} {
-      allow get, list: if isAdmin();
+      allow get, list: if true;
 
       allow create: if isAdmin() &&
         isValidId(configId) &&
         hasValidKeyCount() &&
         incoming().keys().hasAll([
-          'featureWarranty', 'featureDevices', 'featureCalculator', 'featureInvoice',
-          'featureNotes', 'featureHub', 'featurePrivacy', 'featurePwaPopup',
+          'featureWarranty', 'featureDevices', 'featureInvoice',
+          'featureHub', 'featurePrivacy', 'featurePwaPopup',
           'maintenanceMode', 'maintenanceMessage', 'announcementActive', 'announcementText',
           'defaultGstPercent', 'defaultInvoicePalette', 'defaultTheme',
           'updatedByUid', 'createdAt', 'updatedAt'
@@ -242,20 +340,13 @@ service cloud.firestore {
         isValidId(configId) &&
         hasValidKeyCount() &&
         isValidAppConfig(incoming()) &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().diff(existing()).affectedKeys().hasOnly([
-          'featureWarranty', 'featureDevices', 'featureCalculator', 'featureInvoice',
-          'featureNotes', 'featureHub', 'featurePrivacy', 'featurePwaPopup',
-          'maintenanceMode', 'maintenanceMessage', 'announcementActive', 'announcementText',
-          'defaultGstPercent', 'defaultInvoicePalette', 'defaultTheme',
-          'updatedByUid', 'updatedAt'
-        ]);
+        incoming().createdAt == existing().createdAt;
 
       allow delete: if isAdmin() && isValidId(configId);
     }
 
     match /hubApps/{appId} {
-      allow get, list: if isAdmin();
+      allow get, list: if true;
 
       allow create: if isAdmin() &&
         isValidId(appId) &&
@@ -288,10 +379,9 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // 5. Customer Root Document & Subcollections (Strict Owner UID Isolation + Zero User Listing)
+    // 7. Customer Root Document & Subcollections (Strict Owner UID Isolation + Zero User Listing)
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
-      // Block listing all users on root /users collection
       allow list: if false;
 
       allow create: if isSignedIn() &&
@@ -331,7 +421,6 @@ service cloud.firestore {
 
       allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
 
-      // Installed Units & Warranties
       match /warranties/{warrantyId} {
         allow get: if isValidId(warrantyId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();
@@ -374,7 +463,6 @@ service cloud.firestore {
         allow delete: if isValidId(warrantyId) && (isOwner(userId) || isAdmin());
       }
 
-      // Service & Support Requests
       match /serviceRequests/{requestId} {
         allow get: if isValidId(requestId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();
@@ -413,109 +501,6 @@ service cloud.firestore {
         allow delete: if isValidId(requestId) && (isOwner(userId) || isAdmin());
       }
 
-      // Customer Bills / Invoices
-      match /invoices/{invoiceId} {
-        allow get: if isValidId(invoiceId) && (isOwner(userId) || isAdmin());
-        allow list: if isOwner(userId) || isAdmin();
-
-        allow create: if isSignedIn() &&
-          isValidId(invoiceId) &&
-          hasValidKeyCount() &&
-          incoming().keys().hasAll([
-            'userId', 'invoiceNo', 'clientName', 'grandTotal',
-            'status', 'palette', 'invoiceDate', 'dueDate', 'createdAt', 'updatedAt'
-          ]) &&
-          incoming().keys().hasOnly([
-            'userId', 'invoiceNo', 'clientName', 'grandTotal',
-            'status', 'palette', 'invoiceDate', 'dueDate', 'createdAt', 'updatedAt'
-          ]) &&
-          isValidInvoiceRecord(incoming(), userId) &&
-          (isOwner(userId) || isAdmin());
-
-        allow update: if isSignedIn() &&
-          isValidId(invoiceId) &&
-          hasValidKeyCount() &&
-          isValidInvoiceRecord(incoming(), userId) &&
-          incoming().userId == existing().userId &&
-          incoming().createdAt == existing().createdAt &&
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'clientName', 'grandTotal', 'status', 'palette', 'invoiceDate', 'dueDate', 'updatedAt'
-          ]) &&
-          (isOwner(userId) || isAdmin());
-
-        allow delete: if isValidId(invoiceId) && (isOwner(userId) || isAdmin());
-      }
-
-      // Hisab-Kitab Calculator Entries
-      match /calcEntries/{entryId} {
-        allow get: if isValidId(entryId) && (isOwner(userId) || isAdmin());
-        allow list: if isOwner(userId) || isAdmin();
-
-        allow create: if isSignedIn() &&
-          isValidId(entryId) &&
-          hasValidKeyCount() &&
-          incoming().keys().hasAll([
-            'userId', 'label', 'expression', 'resultValue',
-            'resultFormatted', 'mode', 'createdAt', 'updatedAt'
-          ]) &&
-          incoming().keys().hasOnly([
-            'userId', 'label', 'expression', 'resultValue',
-            'resultFormatted', 'mode', 'createdAt', 'updatedAt'
-          ]) &&
-          isValidCalcEntry(incoming(), userId) &&
-          (isOwner(userId) || isAdmin());
-
-        allow update: if isSignedIn() &&
-          isValidId(entryId) &&
-          hasValidKeyCount() &&
-          isValidCalcEntry(incoming(), userId) &&
-          incoming().userId == existing().userId &&
-          incoming().createdAt == existing().createdAt &&
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'label', 'updatedAt'
-          ]) &&
-          (isOwner(userId) || isAdmin());
-
-        allow delete: if isValidId(entryId) && (isOwner(userId) || isAdmin());
-      }
-
-      // Personal Notepad Entries
-      match /notes/{noteId} {
-        allow get: if isValidId(noteId) && (isOwner(userId) || isAdmin());
-        allow list: if isOwner(userId) || isAdmin();
-
-        allow create: if isSignedIn() &&
-          isValidId(noteId) &&
-          hasValidKeyCount() &&
-          incoming().keys().hasAll([
-            'userId', 'title', 'content', 'tag', 'pinned',
-            'gmailSyncState', 'driveSyncState', 'lastSyncedLabel',
-            'createdAt', 'updatedAt'
-          ]) &&
-          incoming().keys().hasOnly([
-            'userId', 'title', 'content', 'tag', 'pinned',
-            'gmailSyncState', 'driveSyncState', 'lastSyncedLabel',
-            'createdAt', 'updatedAt'
-          ]) &&
-          isValidPersonalNote(incoming(), userId) &&
-          (isOwner(userId) || isAdmin());
-
-        allow update: if isSignedIn() &&
-          isValidId(noteId) &&
-          hasValidKeyCount() &&
-          isValidPersonalNote(incoming(), userId) &&
-          incoming().userId == existing().userId &&
-          incoming().createdAt == existing().createdAt &&
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'title', 'content', 'tag', 'pinned',
-            'gmailSyncState', 'driveSyncState', 'lastSyncedLabel', 'updatedAt'
-          ]) &&
-          (isOwner(userId) || isAdmin());
-
-        allow delete: if isValidId(noteId) && (isOwner(userId) || isAdmin());
-      }
-
-      // DPDP Privacy Audit Logs (Append-Only)
       match /privacyRequests/{reqId} {
         allow get: if isValidId(reqId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();

@@ -1,1495 +1,1490 @@
 /* =========================================================================
-   AQUAVAULT — LUXURY COLORFUL INVOICE STUDIO ENGINE (v5)
-   Features:
-   - 6 Curated Colorful Designer Palettes + 2 Frame Styles (Colorful Banner / Classic Double-Border)
-   - Live Focus-Safe Editor & Instant Visual A4 Preview
-   - 2x Retina Canvas Renderer -> HD Colorful PNG Image Download
-   - Zero-Dependency Real Binary A4 Colorful PDF Download + Print
-   - Persistent Invoice Ledger -> Google Sheets CSV Export + Real Google Sheets Apps Script Sync
+   AQUAVAULT — ADMIN-ONLY MANUAL BILL GENERATOR & AUTOMATIC GOOGLE DRIVE VAULT
+   - Strict Admin-UID Guard: Only authenticated Admin (UID: Y8zmDKBgubWIVvhufftRPPjG7HC3)
+     can open invoice.html; non-admin visitors are automatically redirected to index.html
+   - Auto-Fill from `private_customers` OR Manual Entry of Customer Name,
+     Mobile Number, Place/Address, Model, Quantity, Price, Discount, and GST
+   - 6 Luxury Color Palettes + 2 Frame Styles (Colorful Executive & Classic Double-Border)
+   - "Generate & Save Bill" permanently saves the bill to Firestore (`private_invoices`)
+     AND automatically pushes the full bill + printable HTML to Admin's Google Drive
+     (`AquaVault_Permanent_Bills` folder) & Google Sheets via Google Apps Script (`Code.gs`)
+   - High-Resolution PNG Image Download, Print-Ready PDF Export & CSV Export
    ========================================================================= */
 
-const INVOICE_PALETTES = {
-  violet: {
-    id: 'violet',
-    name: 'Imperial Violet',
-    primary: '#5B21B6',
-    secondary: '#7C3AED',
-    accent: '#C084FC',
-    tint: '#F5F3FF',
-    tintStrong: '#EDE9FE',
-    border: '#DDD6FE',
-    ink: '#1E1B4B'
-  },
-  sapphire: {
-    id: 'sapphire',
-    name: 'Sapphire Executive',
-    primary: '#1E3A8A',
-    secondary: '#2563EB',
-    accent: '#60A5FA',
-    tint: '#EFF6FF',
-    tintStrong: '#DBEAFE',
-    border: '#BFDBFE',
-    ink: '#0F172A'
-  },
-  emerald: {
-    id: 'emerald',
-    name: 'Emerald Luxe',
-    primary: '#065F46',
-    secondary: '#059669',
-    accent: '#34D399',
-    tint: '#ECFDF5',
-    tintStrong: '#D1FAE5',
-    border: '#A7F3D0',
-    ink: '#064E3B'
-  },
-  crimson: {
-    id: 'crimson',
-    name: 'Crimson Velvet',
-    primary: '#9F1239',
-    secondary: '#E11D48',
-    accent: '#FB7185',
-    tint: '#FFF1F2',
-    tintStrong: '#FFE4E6',
-    border: '#FECDD3',
-    ink: '#4C0519'
-  },
-  amber: {
-    id: 'amber',
-    name: 'Royal Gold',
-    primary: '#92400E',
-    secondary: '#D97706',
-    accent: '#FBBF24',
-    tint: '#FFFBEB',
-    tintStrong: '#FEF3C7',
-    border: '#FDE68A',
-    ink: '#451A03'
-  },
-  obsidian: {
-    id: 'obsidian',
-    name: 'Classic Obsidian',
-    primary: '#111827',
-    secondary: '#374151',
-    accent: '#9CA3AF',
-    tint: '#F9FAFB',
-    tintStrong: '#F3F4F6',
-    border: '#D1D5DB',
-    ink: '#111827'
-  }
-};
+(function () {
+  const ADMIN_CONFIG_KEY = 'aquavault_admin_config_v1';
+  const PRIVATE_CUSTOMERS_CACHE_KEY = 'aquavault_private_customers_v9';
+  const PRIVATE_INVOICES_CACHE_KEY = 'aquavault_private_invoices_v9';
+  const AUTHORIZED_ADMIN_UID = 'Y8zmDKBgubWIVvhufftRPPjG7HC3';
 
-function createDefaultInvoiceDraft() {
-  const today = new Date();
-  const due = new Date(today.getTime() + 14 * 86400000);
-  const iso = (d) => d.toISOString().slice(0, 10);
-  const seq = 101 + ((typeof state !== 'undefined' && state.invoices) ? state.invoices.length : 0);
-  let def = {};
-  try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('aquavault_admin_config_v1') : null;
-    if (raw) def = (JSON.parse(raw).invoiceDefaults) || {};
-  } catch {}
-
-  return {
-    palette: def.palette || 'violet',
-    frameStyle: def.frameStyle === 'classic' ? 'classic' : 'colorful',
-    invoiceNo: `INV-AQV-2026-0${seq}`,
-    invoiceDate: iso(today),
-    dueDate: iso(due),
-    status: 'Paid',
-    businessName: def.businessName || 'AquaVault Water Systems',
-    businessAddress: def.businessAddress || '42 Royal Tech Park, Indiranagar, Bengaluru 560038',
-    businessPhone: def.businessPhone || '+91 98765 43210',
-    businessEmail: def.businessEmail || 'billing@aquavault.in',
-    businessWebsite: 'GSTIN: 29AABCA8419F1Z5',
-    clientName: 'Aarav Sharma',
-    clientAddress: '18 Palm Grove Residency, Whitefield, Bengaluru',
-    clientPhone: '+91 98112 44019',
-    clientEmail: 'aarav.sharma@gmail.com',
-    paymentMethod: 'UPI / Bank Transfer',
-    paymentDetails: def.paymentDetails || 'HDFC Bank • A/C: 50200084192011 • UPI: aquavault@okhdfcbank',
-    discountPct: 5,
-    taxPct: typeof def.gstPercent === 'number' ? def.gstPercent : 18,
-    terms: 'Payment due within 14 days. Includes 2-year AquaVault Shield hardware warranty & priority engineer support.',
-    approvedBy: 'Authorized Signatory',
-    items: [
-      { id: 'i1', desc: 'AquaVault Pro-X7 Dual Tank Controller', qty: 1, unit: 'Unit', price: 8450 },
-      { id: 'i2', desc: 'AquaVault HydroSeal Brass Water Stopper', qty: 1, unit: 'Unit', price: 4950 },
-      { id: 'i3', desc: 'Precision Installation & Float Calibration', qty: 1, unit: 'Service', price: 1200 }
-    ]
+  const PALETTES = {
+    violet: {
+      id: 'violet',
+      name: 'Royal Violet',
+      primary: '#5B21B6',
+      secondary: '#7C3AED',
+      accent: '#DDD6FE',
+      softBg: '#F5F3FF',
+      border: '#C4B5FD',
+      headerGrad: 'linear-gradient(135deg, #2E1065 0%, #5B21B6 55%, #7C3AED 100%)',
+      badgeBg: '#EDE9FE',
+      badgeInk: '#5B21B6'
+    },
+    sapphire: {
+      id: 'sapphire',
+      name: 'Executive Sapphire',
+      primary: '#0F4C81',
+      secondary: '#1D70B8',
+      accent: '#BAE6FD',
+      softBg: '#F0F9FF',
+      border: '#93C5FD',
+      headerGrad: 'linear-gradient(135deg, #0A2E52 0%, #0F4C81 55%, #1D70B8 100%)',
+      badgeBg: '#E0F2FE',
+      badgeInk: '#0F4C81'
+    },
+    emerald: {
+      id: 'emerald',
+      name: 'Emerald Mint',
+      primary: '#047857',
+      secondary: '#059669',
+      accent: '#A7F3D0',
+      softBg: '#ECFDF5',
+      border: '#6EE7B7',
+      headerGrad: 'linear-gradient(135deg, #064E3B 0%, #047857 55%, #10B981 100%)',
+      badgeBg: '#D1FAE5',
+      badgeInk: '#065F46'
+    },
+    crimson: {
+      id: 'crimson',
+      name: 'Ruby Rose',
+      primary: '#9F1239',
+      secondary: '#E11D48',
+      accent: '#FECDD3',
+      softBg: '#FFF1F2',
+      border: '#FDA4AF',
+      headerGrad: 'linear-gradient(135deg, #4C0519 0%, #9F1239 55%, #E11D48 100%)',
+      badgeBg: '#FFE4E6',
+      badgeInk: '#9F1239'
+    },
+    gold: {
+      id: 'gold',
+      name: 'Sovereign Gold',
+      primary: '#92400E',
+      secondary: '#D97706',
+      accent: '#FDE68A',
+      softBg: '#FFFBEB',
+      border: '#FCD34D',
+      headerGrad: 'linear-gradient(135deg, #451A03 0%, #92400E 55%, #D97706 100%)',
+      badgeBg: '#FEF3C7',
+      badgeInk: '#92400E'
+    },
+    obsidian: {
+      id: 'obsidian',
+      name: 'Classic Monochrome',
+      primary: '#111827',
+      secondary: '#374151',
+      accent: '#E5E7EB',
+      softBg: '#F9FAFB',
+      border: '#9CA3AF',
+      headerGrad: 'linear-gradient(135deg, #030712 0%, #1F2937 60%, #374151 100%)',
+      badgeBg: '#F3F4F6',
+      badgeInk: '#111827'
+    }
   };
-}
 
-function ensureInvoiceState() {
-  if (!state.invoiceDraft) {
-    state.invoiceDraft = createDefaultInvoiceDraft();
+  let privateCustomers = [];
+  let privateInvoices = [];
+  let cloudLoadedForAdmin = false;
+  let redirectTimer = null;
+  let savingBillBusy = false;
+
+  function todayIso(offsetDays = 0) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return new Date(d.getTime() + offsetDays * 86400000).toISOString().slice(0, 10);
   }
-  if (!Array.isArray(state.invoices)) {
-    state.invoices = [
+
+  function sanitizeInput(val, maxLen = 250) {
+    return String(val ?? '')
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+      .replace(/<\s*\/?\s*script\b[^>]*>/gi, '')
+      .replace(/javascript\s*:/gi, '')
+      .replace(/data\s*:\s*text\/html/gi, '')
+      .slice(0, maxLen);
+  }
+
+  function sanitizeId(id) {
+    return String(id ?? '').replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 80);
+  }
+
+  function loadAdminDefaults() {
+    try {
+      const raw = localStorage.getItem(ADMIN_CONFIG_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.invoiceDefaults) return parsed.invoiceDefaults;
+      }
+    } catch {}
+    return {};
+  }
+
+  function loadCachedPrivateCustomers() {
+    try {
+      const raw = localStorage.getItem(PRIVATE_CUSTOMERS_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      }
+    } catch {}
+    return [
       {
-        id: 'inv_seed_1',
-        savedAt: formatDate(shiftDays(-5)),
-        ...createDefaultInvoiceDraft(),
-        invoiceNo: 'INV-AQV-2026-0100'
+        id: 'pub_u1',
+        customerName: 'Rajesh Verma',
+        mobileNumber: '+91 98450 11223',
+        address: '42 Park View Residency, Indiranagar, Bengaluru 560038',
+        modelName: 'AquaVault Pro-X7 Dual Tank Controller',
+        hardwareType: 'Water Level Controller',
+        quantity: 1,
+        serialNumber: 'AV-WLC-88412',
+        installDate: todayIso(-125),
+        expiryDate: todayIso(240),
+        warrantyDays: 365,
+        basePrice: 8450,
+        gstRate: 18,
+        invoiceNo: 'INV-AQV-2026-1104'
+      },
+      {
+        id: 'pub_u2',
+        customerName: 'Sandeep Kulkarni',
+        mobileNumber: '+91 98801 44556',
+        address: '18 Palm Grove Villa, Whitefield, Bengaluru 560066',
+        modelName: 'AquaVault HydroSeal Brass Stopper + Pro-X7',
+        hardwareType: 'Water Stopper',
+        quantity: 2,
+        serialNumber: 'AV-WST-55210',
+        installDate: todayIso(-180),
+        expiryDate: todayIso(185),
+        warrantyDays: 365,
+        basePrice: 6800,
+        gstRate: 18,
+        invoiceNo: 'INV-AQV-2026-1189'
       }
     ];
   }
-  if (typeof state.googleSheetWebhook !== 'string' || !state.googleSheetWebhook) {
-    let hook = '';
+
+  function loadCachedPrivateInvoices() {
     try {
-      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('aquavault_admin_config_v1') : null;
-      hook = raw ? (JSON.parse(raw).invoiceDefaults?.googleSheetWebhook || '') : '';
+      const raw = localStorage.getItem(PRIVATE_INVOICES_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch {}
-    state.googleSheetWebhook = hook || '';
+    return [];
   }
-  if (!state.invoiceTab) {
-    state.invoiceTab = 'studio'; // 'studio' | 'ledger'
+
+  function saveCachedPrivateInvoices(list) {
+    try {
+      localStorage.setItem(PRIVATE_INVOICES_CACHE_KEY, JSON.stringify(list));
+    } catch {}
   }
-}
 
-function computeInvoiceTotals(inv) {
-  const items = Array.isArray(inv.items) ? inv.items : [];
-  const subtotal = items.reduce((sum, it) => sum + (Math.max(0, Number(it.qty) || 0) * Math.max(0, Number(it.price) || 0)), 0);
-  const discountPct = Math.max(0, Math.min(100, Number(inv.discountPct) || 0));
-  const taxPct = Math.max(0, Math.min(100, Number(inv.taxPct) || 0));
-  const discountAmt = Math.round(subtotal * (discountPct / 100) * 100) / 100;
-  const taxable = Math.max(0, subtotal - discountAmt);
-  const taxAmt = Math.round(taxable * (taxPct / 100) * 100) / 100;
-  const grandTotal = Math.round((taxable + taxAmt) * 100) / 100;
-  return { subtotal, discountPct, discountAmt, taxable, taxPct, taxAmt, grandTotal };
-}
-
-function getPalette(id) {
-  return INVOICE_PALETTES[id] || INVOICE_PALETTES.violet;
-}
-
-/* =========================================================================
-   INVOICE STUDIO UI RENDERER
-   ========================================================================= */
-function sanitizeInvoiceText(val, maxLen = 200) {
-  return String(val ?? '')
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
-    .replace(/<\s*\/?\s*script\b[^>]*>/gi, '')
-    .replace(/javascript\s*:/gi, '')
-    .replace(/on[a-z]+\s*=/gi, '')
-    .slice(0, maxLen);
-}
-
-function validateInvoiceRecord(inv) {
-  if (!inv || typeof inv !== 'object') return { ok: false, error: 'Invalid invoice payload' };
-  const keys = Object.keys(inv);
-  if (keys.length === 0 || keys.length > 30) {
-    return { ok: false, error: 'Invoice payload exceeds maximum 30 allowed fields' };
-  }
-  const items = Array.isArray(inv.items) ? inv.items : [];
-  if (items.length === 0 || items.length > 25) {
-    return { ok: false, error: 'Invoice must contain between 1 and 25 line items' };
-  }
-  const jsonBytes = new TextEncoder().encode(JSON.stringify(inv)).length;
-  if (jsonBytes > 28000) {
-    return { ok: false, error: 'Invoice payload size exceeds security limit' };
-  }
-  return { ok: true };
-}
-
-function setInvoiceSubTab(tab) {
-  ensureInvoiceState();
-  state.invoiceTab = tab === 'ledger' ? 'ledger' : 'studio';
-  saveState();
-  render();
-}
-
-function setInvoicePalette(paletteId) {
-  ensureInvoiceState();
-  if (!INVOICE_PALETTES[paletteId]) return;
-  state.invoiceDraft.palette = paletteId;
-  saveState();
-  render();
-}
-
-function setInvoiceFrameStyle(style) {
-  ensureInvoiceState();
-  state.invoiceDraft.frameStyle = style === 'classic' ? 'classic' : 'colorful';
-  saveState();
-  render();
-}
-
-function updateInvoiceField(field, value) {
-  ensureInvoiceState();
-  if (field === 'discountPct' || field === 'taxPct') {
-    const n = value === '' ? 0 : Number(value);
-    state.invoiceDraft[field] = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
-  } else {
-    const limits = {
-      invoiceNo: 40,
-      invoiceDate: 20,
-      dueDate: 20,
-      status: 24,
-      businessName: 120,
-      businessAddress: 240,
-      businessPhone: 40,
-      businessEmail: 120,
-      businessWebsite: 120,
-      clientName: 120,
-      clientAddress: 240,
-      clientPhone: 40,
-      clientEmail: 120,
-      paymentMethod: 80,
-      paymentDetails: 240,
-      terms: 500,
-      approvedBy: 80
+  function getDefaultDraft() {
+    const adm = loadAdminDefaults();
+    return {
+      palette: adm.palette || 'violet',
+      frameStyle: adm.frameStyle === 'classic' ? 'classic' : 'colorful',
+      selectedCustomerId: '',
+      invoiceNo: 'INV-AQV-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000),
+      invoiceDate: todayIso(0),
+      dueDate: todayIso(14),
+      status: 'PAID',
+      businessName: adm.businessName || 'AquaVault Smart Systems Pvt. Ltd.',
+      businessTagline: 'Precision Water Level Controllers & Motorized Brass Stoppers',
+      businessAddress: adm.businessAddress || 'Tower B, Indiranagar Tech Park, Bengaluru 560038',
+      businessPhone: adm.businessPhone || '+91 80 4120 8899',
+      businessEmail: adm.businessEmail || 'billing@aquavault.in',
+      businessGstin: '29AABCA8419K1Z5',
+      clientName: 'Rajesh Verma',
+      clientPhone: '+91 98450 11223',
+      clientAddress: '42 Park View Residency, Indiranagar, Bengaluru 560038',
+      hardwareType: 'Water Level Controller',
+      paymentMethod: 'UPI / NEFT Bank Transfer',
+      paymentDetails: adm.paymentDetails || 'HDFC Bank • A/C: 50200084192011 • IFSC: HDFC0000184 • UPI: aquavault@hdfcbank',
+      discountPct: 5,
+      taxPct: typeof adm.gstPercent === 'number' ? adm.gstPercent : 18,
+      notes: '1-Year Comprehensive On-Site Warranty on Controller PCB & Brass Valve Motor.',
+      signatory: 'Ritik Raj • Authorized Signatory',
+      googleSheetWebhook: adm.googleSheetWebhook || '',
+      items: [
+        { id: 'i1', desc: 'AquaVault Pro-X7 Dual Tank Controller', unit: 'Unit', qty: 1, price: 8450 }
+      ]
     };
-    state.invoiceDraft[field] = sanitizeInvoiceText(value, limits[field] || 200);
   }
-  saveState();
-  refreshInvoicePreviewOnly();
-}
 
-function updateInvoiceItem(index, field, value) {
-  ensureInvoiceState();
-  const item = state.invoiceDraft.items[index];
-  if (!item) return;
-  if (field === 'qty') {
-    const q = value === '' ? 0 : Number(value);
-    item.qty = Number.isFinite(q) ? Math.max(0, Math.min(100000, q)) : 0;
-  } else if (field === 'price') {
-    const p = value === '' ? 0 : Number(value);
-    item.price = Number.isFinite(p) ? Math.max(0, Math.min(10000000, p)) : 0;
-  } else if (field === 'unit') {
-    item.unit = sanitizeInvoiceText(value, 24);
-  } else {
-    item.desc = sanitizeInvoiceText(value, 180);
-  }
-  saveState();
-  const rowTotalEl = document.getElementById(`invRowTotal_${index}`);
-  if (rowTotalEl) {
-    rowTotalEl.textContent = formatINR((Number(item.qty) || 0) * (Number(item.price) || 0));
-  }
-  refreshInvoicePreviewOnly();
-}
+  let draft = getDefaultDraft();
+  privateCustomers = loadCachedPrivateCustomers();
+  privateInvoices = loadCachedPrivateInvoices();
 
-function addInvoiceItem() {
-  ensureInvoiceState();
-  if (state.invoiceDraft.items.length >= 25) {
-    showToast('Maximum 25 line items allowed per invoice');
-    return;
-  }
-  state.invoiceDraft.items.push({
-    id: 'i' + Date.now(),
-    desc: '',
-    qty: 1,
-    unit: 'Unit',
-    price: 0
-  });
-  saveState();
-  render();
-}
+  async function loadPrivateAdminVaultFromFirestore() {
+    if (cloudLoadedForAdmin) return;
+    const cs = typeof window.getCloudState === 'function' ? window.getCloudState() : null;
+    if (!cs || !cs.isAdmin || !cs.db || !cs.fbSdk) return;
+    cloudLoadedForAdmin = true;
 
-function removeInvoiceItem(index) {
-  ensureInvoiceState();
-  if (state.invoiceDraft.items.length <= 1) {
-    showToast('Keep at least one line item');
-    return;
-  }
-  state.invoiceDraft.items.splice(index, 1);
-  saveState();
-  render();
-}
-
-function resetInvoiceDraft() {
-  ensureInvoiceState();
-  state.invoiceDraft = createDefaultInvoiceDraft();
-  saveState();
-  render();
-  showToast('New blank invoice prepared');
-}
-
-function loadSavedInvoiceIntoEditor(id) {
-  ensureInvoiceState();
-  const found = state.invoices.find(x => x.id === id);
-  if (!found) return;
-  state.invoiceDraft = JSON.parse(JSON.stringify(found));
-  delete state.invoiceDraft.id;
-  delete state.invoiceDraft.savedAt;
-  state.invoiceTab = 'studio';
-  saveState();
-  render();
-  showToast(`Loaded ${found.invoiceNo} into studio`);
-}
-
-function deleteSavedInvoice(id) {
-  ensureInvoiceState();
-  state.invoices = state.invoices.filter(x => x.id !== id);
-  saveState();
-  if (typeof window.deleteCloudRecord === 'function') {
-    window.deleteCloudRecord('invoices', id);
-  }
-  render();
-  showToast('Invoice removed from ledger');
-}
-
-function saveCurrentInvoiceToLedger(silent = false) {
-  ensureInvoiceState();
-  const inv = JSON.parse(JSON.stringify(state.invoiceDraft));
-  const check = validateInvoiceRecord(inv);
-  if (!check.ok) {
-    if (!silent) showToast(check.error);
-    return null;
-  }
-  const existingIdx = state.invoices.findIndex(x => x.invoiceNo === inv.invoiceNo);
-  const record = {
-    id: existingIdx >= 0 ? state.invoices[existingIdx].id : ('inv_' + Date.now()),
-    savedAt: formatDate(shiftDays(0)),
-    ...inv
-  };
-  if (existingIdx >= 0) {
-    state.invoices[existingIdx] = record;
-  } else {
-    state.invoices.unshift(record);
-  }
-  saveState();
-  if (!silent) {
-    render();
-    showToast(`Saved ${inv.invoiceNo} to Local Draft Ledger`);
-  }
-  return record;
-}
-
-function saveInvoiceToCloud() {
-  ensureInvoiceState();
-  const record = saveCurrentInvoiceToLedger(true);
-  if (!record) return;
-  if (typeof window.requireCloudAuth === 'function') {
-    window.requireCloudAuth(
-      {
-        type: 'save_invoice',
-        label: `Save Invoice ${record.invoiceNo} to Cloud Vault`,
-        payload: record
-      },
-      async () => {
-        if (typeof window.syncInvoiceRecordToCloud === 'function') {
-          await window.syncInvoiceRecordToCloud(record);
-        }
-        render();
+    try {
+      const custSnap = await cs.fbSdk.getDocs(cs.fbSdk.collection(cs.db, 'private_customers'));
+      if (!custSnap.empty) {
+        const list = [];
+        custSnap.forEach(s => list.push({ id: s.id, ...s.data() }));
+        privateCustomers = list;
+        try { localStorage.setItem(PRIVATE_CUSTOMERS_CACHE_KEY, JSON.stringify(list)); } catch {}
       }
-    );
-  } else {
-    render();
-    showToast(`Saved ${record.invoiceNo} to Vault`);
-  }
-}
+    } catch (err) {
+      console.warn('private_customers load note:', err?.message || err);
+    }
 
-function openSavedInvoiceVault() {
-  ensureInvoiceState();
-  if (typeof window.requireCloudAuth === 'function') {
-    window.requireCloudAuth(
-      {
-        type: 'open_invoice_vault',
-        label: 'Open My Saved Invoice Vault',
-        payload: null
-      },
-      async () => {
-        state.invoiceTab = 'ledger';
-        saveState();
-        if (typeof window.pullUserVaultFromCloud === 'function') {
-          await window.pullUserVaultFromCloud();
-        }
-        render();
+    try {
+      const invSnap = await cs.fbSdk.getDocs(cs.fbSdk.collection(cs.db, 'private_invoices'));
+      if (!invSnap.empty) {
+        const list = [];
+        invSnap.forEach(s => list.push({ id: s.id, ...s.data() }));
+        list.sort((a, b) => String(b.invoiceDate || '').localeCompare(String(a.invoiceDate || '')));
+        privateInvoices = list;
+        saveCachedPrivateInvoices(list);
       }
-    );
-  } else {
-    setInvoiceSubTab('ledger');
+    } catch (err) {
+      console.warn('private_invoices load note:', err?.message || err);
+    }
+
+    refreshInvoiceDom();
   }
-}
 
-function buildLiveInvoicePreviewMarkup(inv) {
-  const p = getPalette(inv.palette);
-  const t = computeInvoiceTotals(inv);
-  const isClassic = inv.frameStyle === 'classic';
-  const items = inv.items || [];
+  function calculateInvoiceTotals(inv) {
+    const items = (inv.items || []).map(it => {
+      const qty = Math.max(0, Number(it.qty) || 0);
+      const price = Math.max(0, Number(it.price) || 0);
+      const lineTotal = +(qty * price).toFixed(2);
+      return { ...it, qty, price, lineTotal };
+    });
+    const subtotal = +items.reduce((acc, it) => acc + it.lineTotal, 0).toFixed(2);
+    const discountPct = Math.max(0, Math.min(100, Number(inv.discountPct) || 0));
+    const discountAmt = +((subtotal * discountPct) / 100).toFixed(2);
+    const taxable = Math.max(0, +(subtotal - discountAmt).toFixed(2));
+    const taxPct = Math.max(0, Math.min(50, Number(inv.taxPct) || 0));
+    const taxAmt = +((taxable * taxPct) / 100).toFixed(2);
+    const grandTotal = +(taxable + taxAmt).toFixed(2);
+    const totalQty = items.reduce((acc, it) => acc + (parseInt(it.qty, 10) || 0), 0) || 1;
+    const primaryModel = items.map(i => `${i.desc} (x${i.qty})`).join(' + ') || 'AquaVault Controller';
+    const primaryUnitPrice = items[0]?.price || subtotal;
+    return {
+      items,
+      subtotal,
+      discountPct,
+      discountAmt,
+      taxable,
+      taxPct,
+      taxAmt,
+      grandTotal,
+      totalQty,
+      primaryModel,
+      primaryUnitPrice
+    };
+  }
 
-  const rowsHtml = items.map((it, idx) => {
-    const lineTotal = (Number(it.qty) || 0) * (Number(it.price) || 0);
-    const rowBg = idx % 2 === 1 ? p.tint : '#FFFFFF';
-    return `
-      <tr style="background:${rowBg};">
-        <td style="text-align:center;color:#64748B;font-family:'JetBrains Mono',monospace;">${idx + 1}</td>
-        <td style="font-weight:600;color:${p.ink};">${escapeHtml(it.desc || 'Line Item')}</td>
-        <td style="text-align:center;font-family:'JetBrains Mono',monospace;">${Number(it.qty) || 0}</td>
-        <td style="text-align:center;color:#475569;">${escapeHtml(it.unit || 'Unit')}</td>
-        <td style="text-align:right;font-family:'JetBrains Mono',monospace;">${formatINR(it.price)}</td>
-        <td style="text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;color:${p.ink};">${formatINR(lineTotal)}</td>
+  function fmtMoney(n) {
+    const val = Number(n) || 0;
+    return '₹' + val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  /* =========================================================================
+     SELECT EXISTING CUSTOMER FROM PRIVATE_CUSTOMERS TO AUTO-FILL BILL
+     ========================================================================= */
+  function selectExistingCustomerForBill(customerId) {
+    draft.selectedCustomerId = sanitizeId(customerId);
+    if (!customerId) {
+      refreshInvoiceDom();
+      return;
+    }
+    const cust = privateCustomers.find(c => c.id === customerId);
+    if (!cust) return;
+
+    draft.clientName = sanitizeInput(cust.customerName || '', 120);
+    draft.clientPhone = sanitizeInput(cust.mobileNumber || '', 30);
+    draft.clientAddress = sanitizeInput(cust.address || '', 250);
+    draft.hardwareType = cust.hardwareType || 'Water Level Controller';
+    draft.taxPct = typeof cust.gstRate === 'number' ? cust.gstRate : draft.taxPct;
+    if (cust.invoiceNo) {
+      draft.invoiceNo = sanitizeInput(cust.invoiceNo, 60);
+    }
+    draft.items = [
+      {
+        id: 'i_' + Date.now().toString(36),
+        desc: sanitizeInput(cust.modelName || 'AquaVault Pro-X7 Controller', 140),
+        unit: 'Unit',
+        qty: Math.max(1, parseInt(cust.quantity, 10) || 1),
+        price: Math.max(0, Number(cust.basePrice) || 8450)
+      }
+    ];
+    refreshInvoiceDom();
+    window.showToast(`Auto-filled ${cust.customerName} (${cust.mobileNumber})`);
+  }
+
+  /* =========================================================================
+     PRINTABLE HTML BUILDER FOR PERMANENT GOOGLE DRIVE PDF ARCHIVE
+     ========================================================================= */
+  function buildPrintableInvoiceHtml(inv, calc) {
+    const pal = PALETTES[inv.palette] || PALETTES.violet;
+    const esc = window.esc || ((s) => String(s ?? ''));
+    const rowsHtml = calc.items.map((it, idx) => `
+      <tr>
+        <td style="padding:10px;border:1px solid ${pal.border};text-align:center;">${idx + 1}</td>
+        <td style="padding:10px;border:1px solid ${pal.border};font-weight:700;">${esc(it.desc)}</td>
+        <td style="padding:10px;border:1px solid ${pal.border};text-align:center;">${it.qty}</td>
+        <td style="padding:10px;border:1px solid ${pal.border};text-align:center;">${esc(it.unit)}</td>
+        <td style="padding:10px;border:1px solid ${pal.border};text-align:right;">${fmtMoney(it.price)}</td>
+        <td style="padding:10px;border:1px solid ${pal.border};text-align:right;font-weight:700;">${fmtMoney(it.lineTotal)}</td>
       </tr>
-    `;
-  }).join('');
+    `).join('');
 
-  return `
-    <div class="inv-paper ${isClassic ? 'inv-paper-classic' : ''}" style="--inv-primary:${p.primary};--inv-secondary:${p.secondary};--inv-accent:${p.accent};--inv-tint:${p.tint};--inv-tint-strong:${p.tintStrong};--inv-border:${p.border};--inv-ink:${p.ink};">
-      ${isClassic ? `
-        <div class="inv-classic-head">
-          <div>
-            <div class="inv-classic-title serif">INVOICE</div>
-            <div class="inv-meta-chip mono">${escapeHtml(inv.invoiceNo)} &middot; ${escapeHtml(inv.status)}</div>
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Invoice ${esc(inv.invoiceNo)} - ${esc(inv.clientName)}</title>
+</head>
+<body style="font-family:Arial,Helvetica,sans-serif;color:#0F172A;padding:28px;max-width:820px;margin:0 auto;">
+  <div style="border:2px solid ${pal.primary};border-radius:16px;overflow:hidden;">
+    <div style="background:${pal.primary};color:#FFFFFF;padding:24px 28px;display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:0.85;">OFFICIAL GST TAX INVOICE</div>
+        <h1 style="margin:6px 0 4px;font-size:28px;">${esc(inv.businessName)}</h1>
+        <div style="font-size:12px;opacity:0.9;">${esc(inv.businessAddress)}</div>
+        <div style="font-size:12px;opacity:0.9;">Phone: ${esc(inv.businessPhone)} &bull; GSTIN: ${esc(inv.businessGstin)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:16px;font-weight:800;">${esc(inv.invoiceNo)}</div>
+        <div style="font-size:12px;margin-top:4px;">Invoice Date: ${esc(inv.invoiceDate)}</div>
+        <div style="font-size:12px;">Due Date: ${esc(inv.dueDate)}</div>
+        <div style="margin-top:6px;display:inline-block;background:#FFFFFF;color:${pal.primary};padding:3px 10px;border-radius:99px;font-size:11px;font-weight:800;">${esc(inv.status)}</div>
+      </div>
+    </div>
+
+    <div style="padding:24px 28px;">
+      <div style="background:${pal.softBg};border:1px solid ${pal.border};border-radius:12px;padding:16px;margin-bottom:20px;display:flex;justify-content:space-between;gap:16px;">
+        <div>
+          <div style="font-size:10px;font-weight:800;color:${pal.primary};text-transform:uppercase;letter-spacing:1px;">Billed To Customer</div>
+          <div style="font-size:17px;font-weight:800;margin-top:4px;">${esc(inv.clientName)}</div>
+          <div style="font-size:13px;color:#334155;margin-top:3px;"><strong>Mobile:</strong> ${esc(inv.clientPhone)}</div>
+          <div style="font-size:13px;color:#334155;"><strong>Place / Address:</strong> ${esc(inv.clientAddress)}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:10px;font-weight:800;color:${pal.primary};text-transform:uppercase;letter-spacing:1px;">Payment Mode</div>
+          <div style="font-size:13px;font-weight:700;margin-top:4px;">${esc(inv.paymentMethod)}</div>
+          <div style="font-size:11.5px;color:#475569;margin-top:4px;max-width:260px;">${esc(inv.paymentDetails)}</div>
+        </div>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
+        <thead>
+          <tr style="background:${pal.primary};color:#FFFFFF;">
+            <th style="padding:10px;border:1px solid ${pal.primary};">#</th>
+            <th style="padding:10px;border:1px solid ${pal.primary};text-align:left;">Product Model / Description</th>
+            <th style="padding:10px;border:1px solid ${pal.primary};">Qty</th>
+            <th style="padding:10px;border:1px solid ${pal.primary};">Unit</th>
+            <th style="padding:10px;border:1px solid ${pal.primary};text-align:right;">Unit Price</th>
+            <th style="padding:10px;border:1px solid ${pal.primary};text-align:right;">Line Total</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">
+        <div style="flex:1;font-size:12px;color:#475569;">
+          <strong style="color:${pal.primary};">Warranty &amp; Terms:</strong><br/>
+          ${esc(inv.notes)}
+        </div>
+        <div style="width:270px;background:${pal.softBg};border:1.5px solid ${pal.border};border-radius:12px;padding:14px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+            <span>Subtotal</span><strong>${fmtMoney(calc.subtotal)}</strong>
           </div>
-          <div style="text-align:right;">
-            <div style="font-size:15px;font-weight:800;color:${p.primary};">${escapeHtml(inv.businessName)}</div>
-            <div class="inv-small-line">${escapeHtml(inv.businessAddress)}</div>
-            <div class="inv-small-line">${escapeHtml(inv.businessPhone)} &middot; ${escapeHtml(inv.businessEmail)}</div>
-            <div class="inv-small-line mono">${escapeHtml(inv.businessWebsite)}</div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+            <span>Discount (${calc.discountPct}%)</span><strong style="color:#E11D48;">- ${fmtMoney(calc.discountAmt)}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px;">
+            <span>GST (${calc.taxPct}%)</span><strong>+ ${fmtMoney(calc.taxAmt)}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:800;color:${pal.primary};border-top:1.5px solid ${pal.border};padding-top:8px;">
+            <span>Grand Total</span><span>${fmtMoney(calc.grandTotal)}</span>
           </div>
         </div>
-      ` : `
-        <div class="inv-colorful-banner" style="background:linear-gradient(135deg, ${p.primary} 0%, ${p.secondary} 100%);">
-          <div style="display:flex;align-items:center;gap:11px;min-width:0;">
-            <img src="assets/icon-192.png" alt="Logo" class="inv-logo-img" />
-            <div style="min-width:0;">
-              <div style="font-size:16px;font-weight:800;color:#FFFFFF;letter-spacing:-0.02em;">${escapeHtml(inv.businessName)}</div>
-              <div style="font-size:10.5px;color:rgba(255,255,255,0.84);margin-top:2px;">${escapeHtml(inv.businessAddress)}</div>
-              <div style="font-size:10px;color:rgba(255,255,255,0.78);margin-top:1px;">${escapeHtml(inv.businessPhone)} &middot; ${escapeHtml(inv.businessEmail)}</div>
+      </div>
+
+      <div style="margin-top:24px;padding-top:14px;border-top:1px dashed ${pal.border};display:flex;justify-content:space-between;font-size:12px;color:#64748B;">
+        <span>Authorized Signatory: <strong>${esc(inv.signatory)}</strong></span>
+        <span>AquaVault Permanent Google Drive Bill Record</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+  }
+
+  /* =========================================================================
+     1-CLICK "GENERATE & SAVE BILL" -> FIRESTORE (`private_invoices`) + GOOGLE DRIVE
+     ========================================================================= */
+  async function generateAndSaveAdminBill() {
+    if (savingBillBusy) return;
+    const cs = typeof window.getCloudState === 'function' ? window.getCloudState() : null;
+    if (!cs || !cs.isAdmin) {
+      window.showToast('Access Denied: Only verified Admin UID can generate & save official bills.');
+      return;
+    }
+
+    const calc = calculateInvoiceTotals(draft);
+    if (!draft.clientName.trim()) {
+      window.showToast('Enter Customer Full Name');
+      return;
+    }
+
+    savingBillBusy = true;
+    refreshInvoiceDom();
+
+    const invoiceId = sanitizeId('inv_' + draft.invoiceNo.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now().toString(36));
+    const webhookUrl = (draft.googleSheetWebhook || '').trim();
+    const printableHtml = buildPrintableInvoiceHtml(draft, calc);
+
+    let driveSaved = false;
+
+    // 1. Automatically push bill to Google Drive (`Code.gs` Web App URL) if configured
+    if (webhookUrl && /^https:\/\/script\.google\.com\//i.test(webhookUrl)) {
+      try {
+        const drivePayload = {
+          invoiceNo: draft.invoiceNo,
+          invoiceDate: draft.invoiceDate,
+          dueDate: draft.dueDate,
+          status: draft.status,
+          customerName: draft.clientName,
+          mobileNumber: draft.clientPhone || '',
+          address: draft.clientAddress || '',
+          modelName: calc.primaryModel,
+          hardwareType: draft.hardwareType || 'Water Level Controller',
+          quantity: calc.totalQty,
+          unitPrice: calc.primaryUnitPrice,
+          subtotal: calc.subtotal,
+          discountPct: calc.discountPct,
+          discountAmt: calc.discountAmt,
+          taxPct: calc.taxPct,
+          taxAmt: calc.taxAmt,
+          grandTotal: calc.grandTotal,
+          paymentMethod: draft.paymentMethod,
+          businessName: draft.businessName,
+          businessAddress: draft.businessAddress,
+          businessPhone: draft.businessPhone,
+          signatory: draft.signatory,
+          items: calc.items,
+          invoiceHtml: printableHtml
+        };
+        await fetch(webhookUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(drivePayload)
+        });
+        driveSaved = true;
+      } catch (err) {
+        console.warn('Google Drive Apps Script webhook warning:', err?.message || err);
+      }
+    }
+
+    // 2. Save permanently to Firestore `private_invoices`
+    const firestoreRecord = {
+      invoiceNo: sanitizeInput(draft.invoiceNo, 60),
+      customerId: sanitizeId(draft.selectedCustomerId || 'manual'),
+      customerName: sanitizeInput(draft.clientName, 120),
+      mobileNumber: sanitizeInput(draft.clientPhone || '', 30),
+      address: sanitizeInput(draft.clientAddress || '', 250),
+      modelName: sanitizeInput(calc.primaryModel, 200),
+      hardwareType: sanitizeInput(draft.hardwareType || 'Water Level Controller', 40),
+      quantity: Math.max(1, Math.min(10000, calc.totalQty)),
+      unitPrice: Math.max(0, Number(calc.primaryUnitPrice) || 0),
+      discountPct: calc.discountPct,
+      taxPct: calc.taxPct,
+      grandTotal: calc.grandTotal,
+      status: ['PAID', 'PENDING', 'OVERDUE'].includes(draft.status) ? draft.status : 'PAID',
+      palette: PALETTES[draft.palette] ? draft.palette : 'violet',
+      invoiceDate: sanitizeInput(draft.invoiceDate, 20),
+      dueDate: sanitizeInput(draft.dueDate, 20),
+      driveSaved: Boolean(driveSaved)
+    };
+
+    if (cs.db && cs.fbSdk) {
+      try {
+        await cs.fbSdk.setDoc(cs.fbSdk.doc(cs.db, 'private_invoices', invoiceId), {
+          ...firestoreRecord,
+          createdAt: cs.fbSdk.serverTimestamp(),
+          updatedAt: cs.fbSdk.serverTimestamp()
+        });
+      } catch (err) {
+        console.warn('Firestore private_invoices write warning:', err?.message || err);
+      }
+    }
+
+    // 3. Update local Admin cache & persist webhook URL into Admin Config
+    const localRecord = {
+      id: invoiceId,
+      ...firestoreRecord,
+      items: calc.items,
+      paymentMethod: draft.paymentMethod,
+      notes: draft.notes
+    };
+    privateInvoices = [localRecord, ...privateInvoices.filter(x => x.invoiceNo !== localRecord.invoiceNo)].slice(0, 100);
+    saveCachedPrivateInvoices(privateInvoices);
+
+    if (webhookUrl) {
+      try {
+        const rawCfg = localStorage.getItem(ADMIN_CONFIG_KEY);
+        const cfg = rawCfg ? JSON.parse(rawCfg) : {};
+        cfg.invoiceDefaults = { ...(cfg.invoiceDefaults || {}), googleSheetWebhook: webhookUrl };
+        localStorage.setItem(ADMIN_CONFIG_KEY, JSON.stringify(cfg));
+      } catch {}
+    }
+
+    savingBillBusy = false;
+    refreshInvoiceDom();
+
+    if (driveSaved) {
+      window.showToast(`Bill ${draft.invoiceNo} saved to Firestore & Google Drive ("AquaVault_Permanent_Bills")!`);
+    } else if (webhookUrl) {
+      window.showToast(`Bill ${draft.invoiceNo} saved to Firestore! Check your Apps Script Web App URL.`);
+    } else {
+      window.showToast(`Bill ${draft.invoiceNo} saved to Firestore! Paste your Code.gs URL below for auto-Google Drive backup.`);
+    }
+  }
+
+  /* =========================================================================
+     GOOGLE SHEETS CSV EXPORT, PNG IMAGE EXPORT & PDF DOWNLOAD
+     ========================================================================= */
+  function buildCsvRows(invoicesList) {
+    const headers = [
+      'Invoice Number', 'Invoice Date', 'Due Date', 'Payment Status',
+      'Customer Name', 'Customer Mobile', 'Customer Place / Address',
+      'Product Model(s)', 'Total Qty', 'Unit Price (INR)',
+      'Discount %', 'GST %', 'Grand Total (INR)', 'Google Drive Archived'
+    ];
+    const escapeCsv = (val) => '"' + String(val ?? '').replace(/"/g, '""') + '"';
+    const rows = invoicesList.map(inv => {
+      const calc = inv.grandTotal !== undefined && !inv.items
+        ? {
+            primaryModel: inv.modelName || '',
+            totalQty: inv.quantity || 1,
+            primaryUnitPrice: inv.unitPrice || 0,
+            discountPct: inv.discountPct || 0,
+            taxPct: inv.taxPct || 18,
+            grandTotal: inv.grandTotal || 0
+          }
+        : calculateInvoiceTotals(inv);
+      return [
+        inv.invoiceNo,
+        inv.invoiceDate,
+        inv.dueDate,
+        inv.status,
+        inv.customerName || inv.clientName || '',
+        inv.mobileNumber || inv.clientPhone || '',
+        inv.address || inv.clientAddress || '',
+        calc.primaryModel,
+        calc.totalQty,
+        calc.primaryUnitPrice,
+        calc.discountPct,
+        calc.taxPct,
+        calc.grandTotal,
+        inv.driveSaved ? 'YES (Google Drive)' : 'Firestore Saved'
+      ].map(escapeCsv).join(',');
+    });
+    return '\uFEFF' + [headers.map(escapeCsv).join(','), ...rows].join('\r\n');
+  }
+
+  function exportCurrentInvoiceCsv() {
+    const csvContent = buildCsvRows([draft]);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${draft.invoiceNo}-GoogleSheets.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    window.showToast(`Downloaded ${draft.invoiceNo}.csv for Google Sheets`);
+  }
+
+  function exportAllSavedInvoicesCsv() {
+    const list = privateInvoices.length ? privateInvoices : [draft];
+    const csvContent = buildCsvRows(list);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `AquaVault-Admin-Bills-Ledger-${todayIso(0)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    window.showToast(`Exported ${list.length} bill(s) to Google Sheets CSV`);
+  }
+
+  function downloadInvoiceImagePng() {
+    const pal = PALETTES[draft.palette] || PALETTES.violet;
+    const calc = calculateInvoiceTotals(draft);
+    const isClassic = draft.frameStyle === 'classic';
+
+    const W = 1240;
+    const baseH = 1260;
+    const extraRows = Math.max(0, calc.items.length - 3);
+    const H = baseH + extraRows * 68;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, W, H);
+
+    if (isClassic) {
+      ctx.strokeStyle = pal.primary;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(28, 28, W - 56, H - 56);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(40, 40, W - 80, H - 80);
+    } else {
+      const grad = ctx.createLinearGradient(0, 0, W, 240);
+      grad.addColorStop(0, pal.primary);
+      grad.addColorStop(1, pal.secondary);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, 235);
+    }
+
+    if (isClassic) {
+      ctx.fillStyle = pal.primary;
+      ctx.font = '900 58px Georgia, serif';
+      ctx.fillText('INVOICE', 76, 125);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#111827';
+      ctx.font = '800 24px Plus Jakarta Sans, sans-serif';
+      ctx.fillText(draft.businessName, W - 76, 95);
+      ctx.fillStyle = '#4B5563';
+      ctx.font = '500 16px Plus Jakarta Sans, sans-serif';
+      ctx.fillText(draft.businessAddress, W - 76, 124);
+      ctx.fillText(`${draft.businessPhone}  •  ${draft.businessEmail}`, W - 76, 150);
+      ctx.fillText(`GSTIN: ${draft.businessGstin}`, W - 76, 176);
+      ctx.textAlign = 'left';
+    } else {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '800 32px Plus Jakarta Sans, sans-serif';
+      ctx.fillText(draft.businessName, 64, 78);
+      ctx.fillStyle = 'rgba(255,255,255,0.86)';
+      ctx.font = '500 16px Plus Jakarta Sans, sans-serif';
+      ctx.fillText(draft.businessTagline, 64, 108);
+      ctx.fillText(draft.businessAddress, 64, 138);
+      ctx.fillText(`${draft.businessPhone}  •  ${draft.businessEmail}  •  GSTIN: ${draft.businessGstin}`, 64, 166);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 46px Georgia, serif';
+      ctx.fillText('TAX INVOICE', W - 64, 88);
+      ctx.font = '700 20px JetBrains Mono, monospace';
+      ctx.fillText(`# ${draft.invoiceNo}`, W - 64, 126);
+      ctx.font = '600 15px Plus Jakarta Sans, sans-serif';
+      ctx.fillText(`Issued: ${draft.invoiceDate}   •   Due: ${draft.dueDate}`, W - 64, 158);
+      ctx.textAlign = 'left';
+    }
+
+    const boxY = 265;
+    ctx.fillStyle = pal.softBg;
+    ctx.strokeStyle = pal.border;
+    ctx.lineWidth = 2;
+    ctx.fillRect(64, boxY, 530, 175);
+    ctx.strokeRect(64, boxY, 530, 175);
+
+    ctx.fillStyle = pal.primary;
+    ctx.fillRect(64, boxY, 530, 34);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '800 13px Plus Jakarta Sans, sans-serif';
+    ctx.fillText('BILL TO CUSTOMER', 80, boxY + 22);
+
+    ctx.fillStyle = '#111827';
+    ctx.font = '800 21px Plus Jakarta Sans, sans-serif';
+    ctx.fillText(draft.clientName || 'Valued Customer', 80, boxY + 66);
+    ctx.fillStyle = '#374151';
+    ctx.font = '500 15px Plus Jakarta Sans, sans-serif';
+    ctx.fillText(`Mobile: ${draft.clientPhone || '—'}`, 80, boxY + 95);
+    ctx.fillText(`Place: ${draft.clientAddress || '—'}`, 80, boxY + 122);
+    ctx.fillText(`Hardware Category: ${draft.hardwareType || 'Water Level Controller'}`, 80, boxY + 149);
+
+    ctx.fillStyle = pal.softBg;
+    ctx.fillRect(626, boxY, 550, 175);
+    ctx.strokeRect(626, boxY, 550, 175);
+    ctx.fillStyle = pal.primary;
+    ctx.fillRect(626, boxY, 550, 34);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '800 13px Plus Jakarta Sans, sans-serif';
+    ctx.fillText('INVOICE & PAYMENT DETAILS', 642, boxY + 22);
+
+    ctx.fillStyle = '#111827';
+    ctx.font = '700 16px JetBrains Mono, monospace';
+    ctx.fillText(`Invoice No: ${draft.invoiceNo}`, 642, boxY + 66);
+    ctx.font = '600 15px Plus Jakarta Sans, sans-serif';
+    ctx.fillText(`Status: ${draft.status}   •   Mode: ${draft.paymentMethod}`, 642, boxY + 96);
+    ctx.fillStyle = '#4B5563';
+    ctx.font = '500 14px Plus Jakarta Sans, sans-serif';
+    ctx.fillText(draft.paymentDetails.slice(0, 62), 642, boxY + 126);
+    if (draft.paymentDetails.length > 62) {
+      ctx.fillText(draft.paymentDetails.slice(62, 124), 642, boxY + 148);
+    }
+
+    let tableY = 475;
+    ctx.fillStyle = pal.primary;
+    ctx.fillRect(64, tableY, W - 128, 46);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '800 14px Plus Jakarta Sans, sans-serif';
+    ctx.fillText('#', 84, tableY + 29);
+    ctx.fillText('MODEL / DESCRIPTION', 135, tableY + 29);
+    ctx.fillText('QTY', 735, tableY + 29);
+    ctx.fillText('UNIT', 815, tableY + 29);
+    ctx.textAlign = 'right';
+    ctx.fillText('UNIT PRICE', 1010, tableY + 29);
+    ctx.fillText('LINE TOTAL', W - 84, tableY + 29);
+    ctx.textAlign = 'left';
+
+    tableY += 46;
+    const minRows = Math.max(4, calc.items.length);
+    for (let i = 0; i < minRows; i++) {
+      const it = calc.items[i];
+      const rowH = 56;
+      ctx.fillStyle = i % 2 === 0 ? '#FFFFFF' : pal.softBg;
+      ctx.fillRect(64, tableY, W - 128, rowH);
+      ctx.strokeStyle = pal.border;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(64, tableY, W - 128, rowH);
+
+      if (it) {
+        ctx.fillStyle = '#374151';
+        ctx.font = '700 15px JetBrains Mono, monospace';
+        ctx.fillText(String(i + 1), 84, tableY + 34);
+
+        ctx.fillStyle = '#111827';
+        ctx.font = '700 16px Plus Jakarta Sans, sans-serif';
+        ctx.fillText(String(it.desc).slice(0, 52), 135, tableY + 34);
+
+        ctx.font = '700 15px JetBrains Mono, monospace';
+        ctx.fillText(String(it.qty), 740, tableY + 34);
+
+        ctx.font = '600 14px Plus Jakarta Sans, sans-serif';
+        ctx.fillText(String(it.unit || 'Unit'), 815, tableY + 34);
+
+        ctx.textAlign = 'right';
+        ctx.font = '600 15px JetBrains Mono, monospace';
+        ctx.fillText(fmtMoney(it.price), 1010, tableY + 34);
+        ctx.fillStyle = pal.primary;
+        ctx.font = '800 16px JetBrains Mono, monospace';
+        ctx.fillText(fmtMoney(it.lineTotal), W - 84, tableY + 34);
+        ctx.textAlign = 'left';
+      }
+      tableY += rowH;
+    }
+
+    const sumY = tableY + 28;
+    ctx.fillStyle = pal.softBg;
+    ctx.strokeStyle = pal.border;
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(64, sumY, 610, 185);
+    ctx.strokeRect(64, sumY, 610, 185);
+
+    ctx.fillStyle = pal.primary;
+    ctx.font = '800 14px Plus Jakarta Sans, sans-serif';
+    ctx.fillText('WARRANTY TERMS & AUTHORIZED SIGNATURE', 84, sumY + 32);
+    ctx.fillStyle = '#374151';
+    ctx.font = '500 14px Plus Jakarta Sans, sans-serif';
+    ctx.fillText(draft.notes.slice(0, 74), 84, sumY + 62);
+    if (draft.notes.length > 74) {
+      ctx.fillText(draft.notes.slice(74, 148), 84, sumY + 84);
+    }
+
+    ctx.fillStyle = pal.primary;
+    ctx.font = 'italic 700 24px Georgia, serif';
+    ctx.fillText(draft.signatory, 84, sumY + 142);
+    ctx.fillStyle = '#6B7280';
+    ctx.font = '600 12px Plus Jakarta Sans, sans-serif';
+    ctx.fillText('Prepared & Verified by AquaVault Admin', 84, sumY + 166);
+
+    const totX = 706;
+    const totW = W - 64 - totX;
+    ctx.fillStyle = pal.softBg;
+    ctx.fillRect(totX, sumY, totW, 185);
+    ctx.strokeRect(totX, sumY, totW, 185);
+
+    const drawTotRow = (label, val, yOffset, bold = false) => {
+      ctx.fillStyle = bold ? pal.primary : '#374151';
+      ctx.font = bold ? '800 18px Plus Jakarta Sans, sans-serif' : '600 15px Plus Jakarta Sans, sans-serif';
+      ctx.fillText(label, totX + 22, sumY + yOffset);
+      ctx.textAlign = 'right';
+      ctx.font = bold ? '900 22px JetBrains Mono, monospace' : '700 16px JetBrains Mono, monospace';
+      ctx.fillText(val, totX + totW - 22, sumY + yOffset);
+      ctx.textAlign = 'left';
+    };
+
+    drawTotRow('Subtotal', fmtMoney(calc.subtotal), 38);
+    drawTotRow(`Discount (${calc.discountPct}%)`, '- ' + fmtMoney(calc.discountAmt), 72);
+    drawTotRow(`GST / Tax (${calc.taxPct}%)`, '+ ' + fmtMoney(calc.taxAmt), 106);
+
+    ctx.fillStyle = pal.primary;
+    ctx.fillRect(totX, sumY + 128, totW, 57);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '800 17px Plus Jakarta Sans, sans-serif';
+    ctx.fillText('GRAND TOTAL', totX + 22, sumY + 163);
+    ctx.textAlign = 'right';
+    ctx.font = '900 24px JetBrains Mono, monospace';
+    ctx.fillText(fmtMoney(calc.grandTotal), totX + totW - 22, sumY + 164);
+    ctx.textAlign = 'left';
+
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${draft.invoiceNo}-Invoice.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      window.showToast(`Downloaded High-Res Invoice Image (${draft.invoiceNo}.png)`);
+    }, 'image/png');
+  }
+
+  function downloadInvoicePdf() {
+    window.showToast('Opening Print / Save as PDF dialog...');
+    setTimeout(() => {
+      window.print();
+    }, 220);
+  }
+
+  /* =========================================================================
+     LIVE FORM HANDLERS
+     ========================================================================= */
+  function updateInvoiceField(field, val) {
+    if (field === 'discountPct' || field === 'taxPct') {
+      draft[field] = Math.max(0, Math.min(100, Number(val) || 0));
+    } else if (field === 'googleSheetWebhook') {
+      draft[field] = String(val ?? '').trim().slice(0, 500);
+    } else {
+      draft[field] = sanitizeInput(val, 250);
+    }
+    refreshInvoicePreviewOnly();
+  }
+
+  function setInvoicePalette(paletteId) {
+    if (!PALETTES[paletteId]) return;
+    draft.palette = paletteId;
+    refreshInvoiceDom();
+    window.showToast(`Theme switched to ${PALETTES[paletteId].name}`);
+  }
+
+  function setInvoiceFrameStyle(style) {
+    draft.frameStyle = style === 'classic' ? 'classic' : 'colorful';
+    refreshInvoiceDom();
+    window.showToast(style === 'classic' ? 'Classic Double-Border Frame Activated' : 'Colorful Executive Frame Activated');
+  }
+
+  function updateInvoiceLineItem(idx, key, val) {
+    const item = draft.items[idx];
+    if (!item) return;
+    if (key === 'qty') {
+      item.qty = Math.max(1, Math.min(10000, Number(val) || 1));
+    } else if (key === 'price') {
+      item.price = Math.max(0, Math.min(100000000, Number(val) || 0));
+    } else if (key === 'unit') {
+      item.unit = sanitizeInput(val, 30);
+    } else {
+      item.desc = sanitizeInput(val, 160);
+    }
+    refreshInvoicePreviewOnly();
+  }
+
+  function addInvoiceLineItem() {
+    draft.items.push({
+      id: 'i_' + Date.now().toString(36),
+      desc: 'AquaVault HydroSeal Brass Water Stopper Valve',
+      unit: 'Unit',
+      qty: 1,
+      price: 4950
+    });
+    refreshInvoiceDom();
+  }
+
+  function removeInvoiceLineItem(idx) {
+    if (draft.items.length <= 1) {
+      window.showToast('Invoice must have at least 1 line item');
+      return;
+    }
+    draft.items.splice(idx, 1);
+    refreshInvoiceDom();
+  }
+
+  function loadSavedInvoiceIntoEditor(invId) {
+    const found = privateInvoices.find(x => x.id === invId);
+    if (!found) return;
+    draft = {
+      ...draft,
+      invoiceNo: found.invoiceNo || draft.invoiceNo,
+      invoiceDate: found.invoiceDate || draft.invoiceDate,
+      dueDate: found.dueDate || draft.dueDate,
+      status: found.status || 'PAID',
+      palette: found.palette || draft.palette,
+      clientName: found.customerName || found.clientName || '',
+      clientPhone: found.mobileNumber || found.clientPhone || '',
+      clientAddress: found.address || found.clientAddress || '',
+      hardwareType: found.hardwareType || 'Water Level Controller',
+      discountPct: typeof found.discountPct === 'number' ? found.discountPct : 0,
+      taxPct: typeof found.taxPct === 'number' ? found.taxPct : 18,
+      items: Array.isArray(found.items) && found.items.length
+        ? JSON.parse(JSON.stringify(found.items))
+        : [{ id: 'i1', desc: found.modelName || 'AquaVault Controller', unit: 'Unit', qty: found.quantity || 1, price: found.unitPrice || found.grandTotal || 0 }]
+    };
+    refreshInvoiceDom();
+    window.showToast(`Loaded ${found.invoiceNo} into editor`);
+  }
+
+  function deleteSavedInvoice(invId) {
+    const cs = typeof window.getCloudState === 'function' ? window.getCloudState() : null;
+    privateInvoices = privateInvoices.filter(x => x.id !== invId);
+    saveCachedPrivateInvoices(privateInvoices);
+    if (cs && cs.isAdmin && cs.db && cs.fbSdk) {
+      cs.fbSdk.deleteDoc(cs.fbSdk.doc(cs.db, 'private_invoices', sanitizeId(invId))).catch(() => {});
+    }
+    refreshInvoiceDom();
+    window.showToast('Invoice removed from Firestore vault');
+  }
+
+  function copyAppsScriptCodeToClipboard() {
+    fetch('Code.gs?v=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.text())
+      .then(txt => {
+        if (navigator.clipboard && txt) {
+          navigator.clipboard.writeText(txt);
+          window.showToast('Copied Code.gs (Auto-Google Drive Bill Saver) to clipboard!');
+        }
+      })
+      .catch(() => {
+        window.showToast('Open Code.gs from project files to copy the Google Drive script');
+      });
+  }
+
+  /* =========================================================================
+     LIVE INVOICE SHEET PREVIEW HTML
+     ========================================================================= */
+  function renderLiveInvoicePaperHtml() {
+    const pal = PALETTES[draft.palette] || PALETTES.violet;
+    const calc = calculateInvoiceTotals(draft);
+    const isClassic = draft.frameStyle === 'classic';
+    const esc = window.esc;
+
+    const minRows = Math.max(4, calc.items.length);
+    const displayRows = [];
+    for (let i = 0; i < minRows; i++) {
+      displayRows.push(calc.items[i] || null);
+    }
+
+    return `
+      <div
+        id="printableInvoicePaper"
+        class="inv-paper ${isClassic ? 'inv-paper-classic' : 'inv-paper-colorful'}"
+        style="--inv-primary:${pal.primary};--inv-secondary:${pal.secondary};--inv-soft:${pal.softBg};--inv-border:${pal.border};--inv-grad:${pal.headerGrad};--inv-badge-bg:${pal.badgeBg};--inv-badge-ink:${pal.badgeInk};"
+      >
+        ${isClassic ? `
+          <div class="inv-classic-head">
+            <div>
+              <div class="inv-classic-wordmark serif">INVOICE</div>
+              <div class="inv-status-chip">${esc(draft.status)} &bull; #${esc(draft.invoiceNo)}</div>
+            </div>
+            <div class="inv-classic-biz">
+              <div class="inv-biz-title">${esc(draft.businessName)}</div>
+              <div>${esc(draft.businessAddress)}</div>
+              <div>${esc(draft.businessPhone)} &bull; ${esc(draft.businessEmail)}</div>
+              <div class="mono" style="font-weight:700;margin-top:2px;">GSTIN: ${esc(draft.businessGstin)}</div>
             </div>
           </div>
-          <div style="text-align:right;flex-shrink:0;">
-            <div class="serif" style="font-size:30px;line-height:1;color:#FFFFFF;letter-spacing:0.04em;">INVOICE</div>
-            <div class="mono" style="font-size:11px;font-weight:700;color:#FFFFFF;background:rgba(255,255,255,0.18);padding:3px 9px;border-radius:999px;display:inline-block;margin-top:5px;">${escapeHtml(inv.invoiceNo)}</div>
+        ` : `
+          <div class="inv-color-head">
+            <div class="inv-color-biz">
+              <div class="inv-eyebrow-chip">AQUAVAULT EXECUTIVE BILLING STUDIO</div>
+              <div class="inv-biz-title-light">${esc(draft.businessName)}</div>
+              <div class="inv-biz-sub-light">${esc(draft.businessTagline)}</div>
+              <div class="inv-biz-meta-light">${esc(draft.businessAddress)}</div>
+              <div class="inv-biz-meta-light">${esc(draft.businessPhone)} &bull; ${esc(draft.businessEmail)} &bull; GSTIN: ${esc(draft.businessGstin)}</div>
+            </div>
+            <div class="inv-color-meta">
+              <div class="inv-title-display serif">TAX INVOICE</div>
+              <div class="inv-num-pill mono"># ${esc(draft.invoiceNo)}</div>
+              <div class="inv-dates-light">
+                <span>Issued: <strong>${esc(draft.invoiceDate)}</strong></span>
+                <span>Due: <strong>${esc(draft.dueDate)}</strong></span>
+              </div>
+              <div class="inv-paid-stamp">${esc(draft.status)}</div>
+            </div>
           </div>
-        </div>
-      `}
+        `}
 
-      <div class="inv-paper-body">
         <div class="inv-info-grid">
-          <div class="inv-box">
-            <div class="inv-box-bar" style="background:${p.tintStrong};color:${p.primary};">BILL TO</div>
-            <div class="inv-box-content">
-              <div style="font-size:13px;font-weight:800;color:${p.ink};">${escapeHtml(inv.clientName)}</div>
-              <div class="inv-small-line">${escapeHtml(inv.clientAddress)}</div>
-              <div class="inv-small-line">${escapeHtml(inv.clientPhone)}</div>
-              <div class="inv-small-line">${escapeHtml(inv.clientEmail)}</div>
+          <div class="inv-info-box">
+            <div class="inv-box-bar">BILL TO (CUSTOMER)</div>
+            <div class="inv-box-body">
+              <div class="inv-client-name">${esc(draft.clientName || 'Customer Name')}</div>
+              <div><strong>Mobile:</strong> ${esc(draft.clientPhone || '—')}</div>
+              <div><strong>Place / Address:</strong> ${esc(draft.clientAddress || '—')}</div>
+              <div><strong>Hardware:</strong> ${esc(draft.hardwareType || 'Water Level Controller')}</div>
             </div>
           </div>
 
-          <div class="inv-box">
-            <div class="inv-box-bar" style="background:${p.tintStrong};color:${p.primary};">INVOICE &amp; PAYMENT</div>
-            <div class="inv-box-content">
-              <div class="inv-kv"><span>Invoice Date</span><strong class="mono">${formatDate(inv.invoiceDate)}</strong></div>
-              <div class="inv-kv"><span>Due Date</span><strong class="mono">${formatDate(inv.dueDate)}</strong></div>
-              <div class="inv-kv"><span>Method</span><strong>${escapeHtml(inv.paymentMethod)}</strong></div>
-              <div class="inv-small-line" style="margin-top:5px;padding-top:5px;border-top:1px dashed ${p.border};">${escapeHtml(inv.paymentDetails)}</div>
+          <div class="inv-info-box">
+            <div class="inv-box-bar">PAYMENT &amp; BANK INFORMATION</div>
+            <div class="inv-box-body">
+              <div><strong>Payment Method:</strong> ${esc(draft.paymentMethod)}</div>
+              <div><strong>Invoice Date:</strong> <span class="mono">${esc(draft.invoiceDate)}</span> &bull; <strong>Due:</strong> <span class="mono">${esc(draft.dueDate)}</span></div>
+              <div style="margin-top:4px;line-height:1.45;">${esc(draft.paymentDetails)}</div>
             </div>
           </div>
         </div>
 
-        <div class="inv-table-scroll">
-          <table class="inv-items-table">
+        <div class="inv-table-wrap">
+          <table class="inv-table">
             <thead>
-              <tr style="background:${p.primary};color:#FFFFFF;">
-                <th style="width:32px;text-align:center;">No.</th>
-                <th>Description</th>
-                <th style="width:42px;text-align:center;">Qty</th>
-                <th style="width:58px;text-align:center;">Unit</th>
-                <th style="width:82px;text-align:right;">Price</th>
-                <th style="width:88px;text-align:right;">Total</th>
+              <tr>
+                <th style="width:46px;text-align:center;">No.</th>
+                <th>Product Model / Description</th>
+                <th style="width:68px;text-align:center;">Qty</th>
+                <th style="width:82px;text-align:center;">Unit</th>
+                <th style="width:125px;text-align:right;">Unit Price</th>
+                <th style="width:135px;text-align:right;">Line Total</th>
               </tr>
             </thead>
-            <tbody>${rowsHtml}</tbody>
+            <tbody>
+              ${displayRows.map((it, idx) => it ? `
+                <tr>
+                  <td class="mono" style="text-align:center;font-weight:700;">${idx + 1}</td>
+                  <td style="font-weight:700;color:#111827;">${esc(it.desc)}</td>
+                  <td class="mono" style="text-align:center;font-weight:700;">${it.qty}</td>
+                  <td style="text-align:center;color:#4B5563;">${esc(it.unit)}</td>
+                  <td class="mono" style="text-align:right;">${fmtMoney(it.price)}</td>
+                  <td class="mono" style="text-align:right;font-weight:800;color:var(--inv-primary);">${fmtMoney(it.lineTotal)}</td>
+                </tr>
+              ` : `
+                <tr class="inv-empty-row">
+                  <td style="text-align:center;color:#9CA3AF;">${idx + 1}</td>
+                  <td></td><td></td><td></td><td></td><td></td>
+                </tr>
+              `).join('')}
+            </tbody>
           </table>
         </div>
 
         <div class="inv-bottom-grid">
-          <div class="inv-box">
-            <div class="inv-box-bar" style="background:${p.tintStrong};color:${p.primary};">TERMS &amp; COMMENTS</div>
-            <div class="inv-box-content">
-              <div class="inv-small-line" style="line-height:1.5;">${escapeHtml(inv.terms)}</div>
-              <div style="margin-top:12px;padding-top:8px;border-top:1px solid ${p.border};display:flex;align-items:baseline;justify-content:space-between;gap:8px;">
-                <span style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748B;">Approved By</span>
-                <span class="serif" style="font-style:italic;font-size:20px;color:${p.primary};">${escapeHtml(inv.approvedBy)}</span>
+          <div class="inv-comments-box">
+            <div class="inv-box-bar">COMMENTS, WARRANTY TERMS &amp; SIGNATURE</div>
+            <div class="inv-comments-body">
+              <p>${esc(draft.notes)}</p>
+              <div class="inv-signature-row">
+                <div>
+                  <div class="inv-sig-script serif">${esc(draft.signatory)}</div>
+                  <div class="inv-sig-label">Prepared &amp; Approved By</div>
+                </div>
+                <div class="inv-thank-badge">Thank You For Your Business!</div>
               </div>
             </div>
           </div>
 
-          <div class="inv-totals-box" style="border:1px solid ${p.border};background:${p.tint};">
-            <div class="inv-tot-row"><span>Subtotal</span><strong class="mono">${formatINR(t.subtotal)}</strong></div>
-            <div class="inv-tot-row"><span>Discount (${t.discountPct}%)</span><strong class="mono">-${formatINR(t.discountAmt)}</strong></div>
-            <div class="inv-tot-row"><span>GST / Tax (${t.taxPct}%)</span><strong class="mono">+${formatINR(t.taxAmt)}</strong></div>
-            <div class="inv-tot-grand" style="background:${p.primary};color:#FFFFFF;">
+          <div class="inv-totals-box">
+            <div class="inv-total-row">
+              <span>Subtotal</span>
+              <strong class="mono">${fmtMoney(calc.subtotal)}</strong>
+            </div>
+            <div class="inv-total-row">
+              <span>Discount (${calc.discountPct}%)</span>
+              <strong class="mono" style="color:#E11D48;">- ${fmtMoney(calc.discountAmt)}</strong>
+            </div>
+            <div class="inv-total-row">
+              <span>Taxable Amount</span>
+              <strong class="mono">${fmtMoney(calc.taxable)}</strong>
+            </div>
+            <div class="inv-total-row">
+              <span>GST / Tax (${calc.taxPct}%)</span>
+              <strong class="mono">+ ${fmtMoney(calc.taxAmt)}</strong>
+            </div>
+            <div class="inv-grand-row">
               <span>GRAND TOTAL</span>
-              <span class="mono">${formatINR(t.grandTotal)}</span>
+              <strong class="mono">${fmtMoney(calc.grandTotal)}</strong>
             </div>
           </div>
         </div>
-
-        <div class="inv-thankyou" style="border-top:1px solid ${p.border};color:${p.primary};">
-          Thank you for your business! &middot; ${escapeHtml(inv.businessWebsite)}
-        </div>
       </div>
-    </div>
-  `;
-}
-
-function refreshInvoicePreviewOnly() {
-  const host = document.getElementById('liveInvoicePreviewHost');
-  if (host) {
-    host.innerHTML = buildLiveInvoicePreviewMarkup(state.invoiceDraft);
+    `;
   }
-  const summaryTotal = document.getElementById('editorGrandTotalBadge');
-  if (summaryTotal) {
-    summaryTotal.textContent = formatINR(computeInvoiceTotals(state.invoiceDraft).grandTotal);
-  }
-}
 
-/* =========================================================================
-   2X RETINA A4 COLORFUL CANVAS RENDERER (PNG + REAL BINARY A4 PDF)
-   ========================================================================= */
-function loadImageSafe(src) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
-
-function drawRoundedRect(ctx, x, y, w, h, r) {
-  const rad = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rad, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rad);
-  ctx.arcTo(x + w, y + h, x, y + h, rad);
-  ctx.arcTo(x, y + h, x, y, rad);
-  ctx.arcTo(x, y, x + w, y, rad);
-  ctx.closePath();
-}
-
-function wrapCanvasLines(ctx, text, maxWidth) {
-  const words = String(text || '').split(/\s+/);
-  const lines = [];
-  let line = '';
-  for (const w of words) {
-    const test = line ? `${line} ${w}` : w;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
-      line = w;
-    } else {
-      line = test;
+  function refreshInvoicePreviewOnly() {
+    const previewContainer = document.getElementById('liveInvoicePreviewMount');
+    if (previewContainer) {
+      previewContainer.innerHTML = renderLiveInvoicePaperHtml();
+    }
+    const kpiTotal = document.getElementById('invKpiGrandTotal');
+    if (kpiTotal) {
+      kpiTotal.textContent = fmtMoney(calculateInvoiceTotals(draft).grandTotal);
     }
   }
-  if (line) lines.push(line);
-  return lines;
-}
 
-async function renderInvoiceToA4Canvas(inv) {
-  if (document.fonts && document.fonts.ready) {
-    try { await document.fonts.ready; } catch {}
-  }
-
-  const W = 1240;
-  const H = 1754;
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-
-  const p = getPalette(inv.palette);
-  const t = computeInvoiceTotals(inv);
-  const isClassic = inv.frameStyle === 'classic';
-  const logoImg = await loadImageSafe('assets/icon-192.png');
-
-  // Pure white A4 sheet background
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, W, H);
-
-  const M = 64;
-  let y = M;
-
-  if (isClassic) {
-    // Classic Double-Frame Luxury Border (Reference 2 inspired)
-    ctx.strokeStyle = p.primary;
-    ctx.lineWidth = 5;
-    ctx.strokeRect(32, 32, W - 64, H - 64);
-    ctx.lineWidth = 1.8;
-    ctx.strokeRect(44, 44, W - 88, H - 88);
-
-    // Subtle colored top ribbon inside frame
-    ctx.fillStyle = p.tint;
-    ctx.fillRect(46, 46, W - 92, 224);
-
-    ctx.fillStyle = p.primary;
-    ctx.font = '400 92px "Instrument Serif", Georgia, serif';
-    ctx.fillText('INVOICE', M + 16, y + 102);
-
-    // Invoice pill
-    drawRoundedRect(ctx, M + 16, y + 124, 320, 44, 22);
-    ctx.fillStyle = p.primary;
-    ctx.fill();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '700 20px "JetBrains Mono", monospace';
-    ctx.fillText(`${inv.invoiceNo} • ${inv.status}`, M + 36, y + 153);
-
-    // Right business info
-    ctx.textAlign = 'right';
-    ctx.fillStyle = p.primary;
-    ctx.font = '800 30px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText(inv.businessName, W - M - 16, y + 58);
-
-    ctx.fillStyle = '#334155';
-    ctx.font = '500 20px "Plus Jakarta Sans", sans-serif';
-    const bAddr = wrapCanvasLines(ctx, inv.businessAddress, 480);
-    bAddr.slice(0, 2).forEach((ln, i) => ctx.fillText(ln, W - M - 16, y + 92 + i * 28));
-    ctx.fillText(`${inv.businessPhone}  •  ${inv.businessEmail}`, W - M - 16, y + 156);
-    ctx.font = '600 18px "JetBrains Mono", monospace';
-    ctx.fillStyle = p.secondary;
-    ctx.fillText(inv.businessWebsite, W - M - 16, y + 188);
-    ctx.textAlign = 'left';
-
-    y = 310;
-  } else {
-    // Colorful Luxury Gradient Banner Header
-    const grad = ctx.createLinearGradient(0, 0, W, 270);
-    grad.addColorStop(0, p.primary);
-    grad.addColorStop(1, p.secondary);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, 278);
-
-    // Subtle geometric accent arc
-    ctx.fillStyle = 'rgba(255,255,255,0.07)';
-    ctx.beginPath();
-    ctx.arc(W - 110, 40, 240, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Accent strip under banner
-    ctx.fillStyle = p.accent;
-    ctx.fillRect(0, 278, W, 8);
-
-    // Logo squircle
-    if (logoImg) {
-      ctx.save();
-      drawRoundedRect(ctx, M, 66, 108, 108, 24);
-      ctx.clip();
-      ctx.drawImage(logoImg, M, 66, 108, 108);
-      ctx.restore();
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-      ctx.lineWidth = 2;
-      drawRoundedRect(ctx, M, 66, 108, 108, 24);
-      ctx.stroke();
+  function refreshInvoiceDom() {
+    const pageRoot = document.getElementById('invoiceStudioMount');
+    if (pageRoot) {
+      pageRoot.innerHTML = renderInvoiceStudioInner();
     }
-
-    const tx = logoImg ? M + 132 : M;
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '800 36px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText(inv.businessName, tx, 104);
-
-    ctx.fillStyle = 'rgba(255,255,255,0.88)';
-    ctx.font = '500 20px "Plus Jakarta Sans", sans-serif';
-    const bLines = wrapCanvasLines(ctx, inv.businessAddress, 560);
-    bLines.slice(0, 2).forEach((ln, i) => ctx.fillText(ln, tx, 140 + i * 28));
-    ctx.fillText(`${inv.businessPhone}  •  ${inv.businessEmail}`, tx, 206);
-    ctx.font = '600 18px "JetBrains Mono", monospace';
-    ctx.fillStyle = 'rgba(255,255,255,0.78)';
-    ctx.fillText(inv.businessWebsite, tx, 238);
-
-    // Right INVOICE title & badge
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '400 84px "Instrument Serif", Georgia, serif';
-    ctx.fillText('INVOICE', W - M, 128);
-
-    drawRoundedRect(ctx, W - M - 270, 152, 270, 44, 22);
-    ctx.fillStyle = 'rgba(255,255,255,0.20)';
-    ctx.fill();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '700 20px "JetBrains Mono", monospace';
-    ctx.fillText(inv.invoiceNo, W - M - 24, 181);
-
-    ctx.font = '700 17px "Plus Jakarta Sans", sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.86)';
-    ctx.fillText(`STATUS: ${String(inv.status || 'PAID').toUpperCase()}`, W - M, 232);
-    ctx.textAlign = 'left';
-
-    y = 330;
   }
 
-  // BILL TO + INVOICE META BOXES (Side by side)
-  const colGap = 28;
-  const colW = (W - M * 2 - colGap) / 2;
-  const boxH = 230;
-
-  // Left: Bill To
-  drawRoundedRect(ctx, M, y, colW, boxH, 18);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fill();
-  ctx.strokeStyle = p.border;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  drawRoundedRect(ctx, M, y, colW, 46, 16);
-  ctx.fillStyle = p.tintStrong;
-  ctx.fill();
-  ctx.fillRect(M, y + 30, colW, 16);
-  ctx.fillStyle = p.primary;
-  ctx.font = '800 17px "Plus Jakarta Sans", sans-serif';
-  ctx.fillText('BILL TO', M + 22, y + 30);
-
-  ctx.fillStyle = p.ink;
-  ctx.font = '800 26px "Plus Jakarta Sans", sans-serif';
-  ctx.fillText(inv.clientName || 'Customer', M + 22, y + 88);
-
-  ctx.fillStyle = '#475569';
-  ctx.font = '500 20px "Plus Jakarta Sans", sans-serif';
-  const cAddr = wrapCanvasLines(ctx, inv.clientAddress, colW - 44);
-  cAddr.slice(0, 2).forEach((ln, i) => ctx.fillText(ln, M + 22, y + 122 + i * 28));
-  ctx.fillText(inv.clientPhone || '', M + 22, y + 184);
-  ctx.fillText(inv.clientEmail || '', M + 22, y + 212);
-
-  // Right: Invoice & Payment Details
-  const rx = M + colW + colGap;
-  drawRoundedRect(ctx, rx, y, colW, boxH, 18);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fill();
-  ctx.strokeStyle = p.border;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  drawRoundedRect(ctx, rx, y, colW, 46, 16);
-  ctx.fillStyle = p.tintStrong;
-  ctx.fill();
-  ctx.fillRect(rx, y + 30, colW, 16);
-  ctx.fillStyle = p.primary;
-  ctx.font = '800 17px "Plus Jakarta Sans", sans-serif';
-  ctx.fillText('INVOICE & PAYMENT INFO', rx + 22, y + 30);
-
-  const metaRows = [
-    ['Invoice Date', formatDate(inv.invoiceDate)],
-    ['Due Date', formatDate(inv.dueDate)],
-    ['Payment Method', inv.paymentMethod || 'UPI / Bank']
-  ];
-  metaRows.forEach(([k, v], i) => {
-    const ry = y + 84 + i * 32;
-    ctx.fillStyle = '#64748B';
-    ctx.font = '600 19px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText(k, rx + 22, ry);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = p.ink;
-    ctx.font = '700 19px "JetBrains Mono", monospace';
-    ctx.fillText(v, rx + colW - 22, ry);
-    ctx.textAlign = 'left';
-  });
-
-  ctx.strokeStyle = p.border;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(rx + 22, y + 166);
-  ctx.lineTo(rx + colW - 22, y + 166);
-  ctx.stroke();
-
-  ctx.fillStyle = '#475569';
-  ctx.font = '500 17px "Plus Jakarta Sans", sans-serif';
-  const payLines = wrapCanvasLines(ctx, inv.paymentDetails, colW - 44);
-  payLines.slice(0, 2).forEach((ln, i) => ctx.fillText(ln, rx + 22, y + 194 + i * 24));
-
-  y += boxH + 34;
-
-  // LINE ITEMS TABLE
-  const tableW = W - M * 2;
-  const colPos = [M, M + 66, M + 630, M + 720, M + 840, M + 995, M + tableW];
-  const headerH = 54;
-
-  drawRoundedRect(ctx, M, y, tableW, headerH, 14);
-  ctx.fillStyle = p.primary;
-  ctx.fill();
-  ctx.fillRect(M, y + 36, tableW, 18);
-
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '700 18px "Plus Jakarta Sans", sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('NO.', (colPos[0] + colPos[1]) / 2, y + 34);
-  ctx.textAlign = 'left';
-  ctx.fillText('DESCRIPTION', colPos[1] + 14, y + 34);
-  ctx.textAlign = 'center';
-  ctx.fillText('QTY', (colPos[2] + colPos[3]) / 2, y + 34);
-  ctx.fillText('UNIT', (colPos[3] + colPos[4]) / 2, y + 34);
-  ctx.textAlign = 'right';
-  ctx.fillText('UNIT PRICE', colPos[5] - 14, y + 34);
-  ctx.fillText('LINE TOTAL', colPos[6] - 18, y + 34);
-  ctx.textAlign = 'left';
-
-  y += headerH;
-
-  const items = inv.items || [];
-  const rowH = 62;
-  const displayRows = Math.max(items.length, 6);
-
-  for (let i = 0; i < displayRows; i++) {
-    const it = items[i];
-    ctx.fillStyle = i % 2 === 1 ? p.tint : '#FFFFFF';
-    ctx.fillRect(M, y, tableW, rowH);
-
-    ctx.strokeStyle = p.border;
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(M, y, tableW, rowH);
-
-    if (it) {
-      const lineTotal = (Number(it.qty) || 0) * (Number(it.price) || 0);
-      ctx.fillStyle = '#64748B';
-      ctx.font = '600 19px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(String(i + 1), (colPos[0] + colPos[1]) / 2, y + 38);
-
-      ctx.textAlign = 'left';
-      ctx.fillStyle = p.ink;
-      ctx.font = '600 20px "Plus Jakarta Sans", sans-serif';
-      const descTxt = String(it.desc || 'Item').slice(0, 48);
-      ctx.fillText(descTxt, colPos[1] + 14, y + 38);
-
-      ctx.textAlign = 'center';
-      ctx.font = '600 19px "JetBrains Mono", monospace';
-      ctx.fillText(String(Number(it.qty) || 0), (colPos[2] + colPos[3]) / 2, y + 38);
-
-      ctx.fillStyle = '#475569';
-      ctx.font = '500 19px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText(String(it.unit || 'Unit'), (colPos[3] + colPos[4]) / 2, y + 38);
-
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#334155';
-      ctx.font = '600 19px "JetBrains Mono", monospace';
-      ctx.fillText(formatINR(it.price), colPos[5] - 14, y + 38);
-
-      ctx.fillStyle = p.ink;
-      ctx.font = '700 20px "JetBrains Mono", monospace';
-      ctx.fillText(formatINR(lineTotal), colPos[6] - 18, y + 38);
-      ctx.textAlign = 'left';
-    }
-    y += rowH;
-    if (y > 1240) break;
-  }
-
-  y += 32;
-
-  // BOTTOM GRID: TERMS + SIGNATURE (LEFT) & TOTALS BOX (RIGHT)
-  const leftW = 630;
-  const rightW = tableW - leftW - 28;
-  const rightX = M + leftW + 28;
-  const footH = 266;
-
-  // Left: Terms & Signature
-  drawRoundedRect(ctx, M, y, leftW, footH, 18);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fill();
-  ctx.strokeStyle = p.border;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  drawRoundedRect(ctx, M, y, leftW, 44, 16);
-  ctx.fillStyle = p.tintStrong;
-  ctx.fill();
-  ctx.fillRect(M, y + 28, leftW, 16);
-  ctx.fillStyle = p.primary;
-  ctx.font = '800 16px "Plus Jakarta Sans", sans-serif';
-  ctx.fillText('TERMS, WARRANTY & COMMENTS', M + 22, y + 29);
-
-  ctx.fillStyle = '#475569';
-  ctx.font = '500 19px "Plus Jakarta Sans", sans-serif';
-  const termLines = wrapCanvasLines(ctx, inv.terms, leftW - 44);
-  termLines.slice(0, 4).forEach((ln, i) => ctx.fillText(ln, M + 22, y + 82 + i * 28));
-
-  ctx.strokeStyle = p.border;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(M + 22, y + 196);
-  ctx.lineTo(M + leftW - 22, y + 196);
-  ctx.stroke();
-
-  ctx.fillStyle = '#64748B';
-  ctx.font = '700 15px "Plus Jakarta Sans", sans-serif';
-  ctx.fillText('PREPARED & APPROVED BY', M + 22, y + 236);
-
-  ctx.textAlign = 'right';
-  ctx.fillStyle = p.primary;
-  ctx.font = 'italic 400 40px "Instrument Serif", Georgia, serif';
-  ctx.fillText(inv.approvedBy || 'Authorized Signatory', M + leftW - 22, y + 240);
-  ctx.textAlign = 'left';
-
-  // Right: Totals Card
-  drawRoundedRect(ctx, rightX, y, rightW, footH, 18);
-  ctx.fillStyle = p.tint;
-  ctx.fill();
-  ctx.strokeStyle = p.border;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  const totRows = [
-    ['Subtotal', formatINR(t.subtotal)],
-    [`Discount (${t.discountPct}%)`, `-${formatINR(t.discountAmt)}`],
-    [`GST / Tax (${t.taxPct}%)`, `+${formatINR(t.taxAmt)}`]
-  ];
-  totRows.forEach(([k, v], i) => {
-    const ty = y + 48 + i * 44;
-    ctx.fillStyle = '#475569';
-    ctx.font = '600 20px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText(k, rightX + 24, ty);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = p.ink;
-    ctx.font = '700 21px "JetBrains Mono", monospace';
-    ctx.fillText(v, rightX + rightW - 24, ty);
-    ctx.textAlign = 'left';
-  });
-
-  // Grand Total colored block
-  drawRoundedRect(ctx, rightX + 14, y + 178, rightW - 28, 72, 14);
-  ctx.fillStyle = p.primary;
-  ctx.fill();
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '800 20px "Plus Jakarta Sans", sans-serif';
-  ctx.fillText('GRAND TOTAL', rightX + 34, y + 222);
-  ctx.textAlign = 'right';
-  ctx.font = '700 28px "JetBrains Mono", monospace';
-  ctx.fillText(formatINR(t.grandTotal), rightX + rightW - 34, y + 224);
-  ctx.textAlign = 'left';
-
-  // FOOTER THANK YOU
-  const footY = H - 88;
-  ctx.strokeStyle = p.border;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(M, footY - 34);
-  ctx.lineTo(W - M, footY - 34);
-  ctx.stroke();
-
-  ctx.textAlign = 'center';
-  ctx.fillStyle = p.primary;
-  ctx.font = '700 24px "Plus Jakarta Sans", sans-serif';
-  ctx.fillText('Thank you for your business!', W / 2, footY + 4);
-  ctx.fillStyle = '#64748B';
-  ctx.font = '500 17px "JetBrains Mono", monospace';
-  ctx.fillText(`${inv.businessName}  •  ${inv.businessPhone}  •  ${inv.businessEmail}`, W / 2, footY + 34);
-  ctx.textAlign = 'left';
-
-  return canvas;
-}
-
-/* Zero-Dependency Spec-Compliant Binary A4 PDF Generator from Canvas JPEG */
-function canvasToA4PdfBlob(canvas) {
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.94);
-  const base64 = dataUrl.split(',')[1];
-  const binStr = atob(base64);
-  const jpegBytes = new Uint8Array(binStr.length);
-  for (let i = 0; i < binStr.length; i++) jpegBytes[i] = binStr.charCodeAt(i);
-
-  const enc = new TextEncoder();
-  const chunks = [];
-  const offsets = [0];
-  let byteLen = 0;
-
-  const pushStr = (s) => {
-    const b = enc.encode(s);
-    chunks.push(b);
-    byteLen += b.length;
-  };
-  const pushBytes = (b) => {
-    chunks.push(b);
-    byteLen += b.length;
-  };
-
-  pushStr('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n');
-
-  offsets.push(byteLen);
-  pushStr('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
-
-  offsets.push(byteLen);
-  pushStr('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
-
-  offsets.push(byteLen);
-  pushStr('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n');
-
-  offsets.push(byteLen);
-  pushStr(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`);
-  pushBytes(jpegBytes);
-  pushStr('\nendstream\nendobj\n');
-
-  const contentStream = 'q 595.28 0 0 841.89 0 0 cm /Im0 Do Q';
-  offsets.push(byteLen);
-  pushStr(`5 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj\n`);
-
-  const xrefPos = byteLen;
-  pushStr(`xref\n0 ${offsets.length}\n`);
-  pushStr('0000000000 65535 f \n');
-  for (let i = 1; i < offsets.length; i++) {
-    pushStr(String(offsets[i]).padStart(10, '0') + ' 00000 n \n');
-  }
-
-  pushStr(`trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
-  return new Blob(chunks, { type: 'application/pdf' });
-}
-
-function triggerBlobDownload(filename, blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
-
-async function downloadInvoicePNG(savedId = null) {
-  ensureInvoiceState();
-  const inv = savedId ? (state.invoices.find(x => x.id === savedId) || state.invoiceDraft) : state.invoiceDraft;
-  showToast('Rendering HD colorful PNG image...');
-  const canvas = await renderInvoiceToA4Canvas(inv);
-  canvas.toBlob((blob) => {
-    if (blob) {
-      triggerBlobDownload(`${inv.invoiceNo || 'AquaVault-Invoice'}.png`, blob);
-      showToast(`Downloaded ${inv.invoiceNo}.png`);
-    }
-  }, 'image/png');
-}
-
-async function downloadInvoicePDF(savedId = null) {
-  ensureInvoiceState();
-  const inv = savedId ? (state.invoices.find(x => x.id === savedId) || state.invoiceDraft) : state.invoiceDraft;
-  showToast('Generating colorful A4 PDF...');
-  const canvas = await renderInvoiceToA4Canvas(inv);
-  const pdfBlob = canvasToA4PdfBlob(canvas);
-  triggerBlobDownload(`${inv.invoiceNo || 'AquaVault-Invoice'}.pdf`, pdfBlob);
-  showToast(`Downloaded ${inv.invoiceNo}.pdf`);
-}
-
-/* =========================================================================
-   GOOGLE SHEETS CSV EXPORT & LIVE APPS SCRIPT SYNC
-   ========================================================================= */
-function csvCell(val) {
-  const s = String(val ?? '').replace(/"/g, '""');
-  return `"${s}"`;
-}
-
-function buildGoogleSheetsCsv(records) {
-  const headers = [
-    'Invoice Number',
-    'Invoice Date',
-    'Due Date',
-    'Status',
-    'Business Name',
-    'Customer Name',
-    'Customer Phone',
-    'Customer Email',
-    'Items Summary',
-    'Subtotal (INR)',
-    'Discount %',
-    'Discount Amount',
-    'GST / Tax %',
-    'Tax Amount',
-    'Grand Total (INR)',
-    'Payment Method',
-    'Payment Details',
-    'Color Theme'
-  ];
-
-  const rows = records.map(inv => {
-    const t = computeInvoiceTotals(inv);
-    const itemsSummary = (inv.items || [])
-      .map(it => `${it.desc} (${it.qty} ${it.unit} x ${it.price})`)
-      .join(' | ');
-    return [
-      inv.invoiceNo,
-      inv.invoiceDate,
-      inv.dueDate,
-      inv.status,
-      inv.businessName,
-      inv.clientName,
-      inv.clientPhone,
-      inv.clientEmail,
-      itemsSummary,
-      t.subtotal,
-      t.discountPct,
-      t.discountAmt,
-      t.taxPct,
-      t.taxAmt,
-      t.grandTotal,
-      inv.paymentMethod,
-      inv.paymentDetails,
-      getPalette(inv.palette).name
-    ].map(csvCell).join(',');
-  });
-
-  // UTF-8 BOM ensures Excel & Google Sheets open ₹ and Unicode cleanly
-  return '\uFEFF' + [headers.map(csvCell).join(','), ...rows].join('\r\n');
-}
-
-function exportInvoicesGoogleSheetsCSV(includeDraft = true) {
-  ensureInvoiceState();
-  if (includeDraft) saveCurrentInvoiceToLedger(true);
-  const records = state.invoices.length ? state.invoices : [state.invoiceDraft];
-  const csv = buildGoogleSheetsCsv(records);
-  triggerBlobDownload(`AquaVault-GoogleSheets-Invoices.csv`, new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-  showToast(`Exported ${records.length} invoice(s) to Google Sheets CSV`);
-}
-
-function updateGoogleSheetUrl(url) {
-  ensureInvoiceState();
-  state.googleSheetWebhook = url.trim();
-  saveState();
-}
-
-async function syncInvoiceToGoogleSheet() {
-  ensureInvoiceState();
-  const record = saveCurrentInvoiceToLedger(true);
-  const url = (state.googleSheetWebhook || '').trim();
-  if (!url) {
-    exportInvoicesGoogleSheetsCSV(false);
-    showToast('CSV downloaded — paste Apps Script URL below for direct cloud push');
-    return;
-  }
-
-  const t = computeInvoiceTotals(record);
-  const payload = {
-    invoiceNo: record.invoiceNo,
-    invoiceDate: record.invoiceDate,
-    dueDate: record.dueDate,
-    status: record.status,
-    businessName: record.businessName,
-    clientName: record.clientName,
-    clientPhone: record.clientPhone,
-    clientEmail: record.clientEmail,
-    items: (record.items || []).map(i => `${i.desc} (${i.qty} x ${i.price})`).join(' | '),
-    subtotal: t.subtotal,
-    discountPct: t.discountPct,
-    taxPct: t.taxPct,
-    grandTotal: t.grandTotal,
-    paymentMethod: record.paymentMethod
-  };
-
-  try {
-    await fetch(url, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    showToast(`Pushed ${record.invoiceNo} directly to Google Sheet`);
-  } catch {
-    showToast('Could not reach Google Sheet URL — exporting CSV backup');
-    exportInvoicesGoogleSheetsCSV(false);
-  }
-}
-
-function copyAppsScriptSnippet() {
-  const code = `function doPost(e) {\n  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();\n  var d = JSON.parse(e.postData.contents);\n  if (sheet.getLastRow() === 0) {\n    sheet.appendRow(["Invoice No","Date","Due Date","Status","Business","Customer","Phone","Email","Items","Subtotal","Discount %","GST %","Grand Total","Payment"]);\n  }\n  sheet.appendRow([d.invoiceNo,d.invoiceDate,d.dueDate,d.status,d.businessName,d.clientName,d.clientPhone,d.clientEmail,d.items,d.subtotal,d.discountPct,d.taxPct,d.grandTotal,d.paymentMethod]);\n  return ContentService.createTextOutput("OK");\n}`;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(code).then(() => showToast('Google Apps Script copied to clipboard')).catch(() => showToast('Copy script manually from box'));
-  } else {
-    showToast('Copy script from the setup guide');
-  }
-}
-
-/* =========================================================================
-   MAIN PAGE RENDERER: renderInvoicePage()
-   ========================================================================= */
-function renderInvoicePage() {
-  ensureInvoiceState();
-  const inv = state.invoiceDraft;
-  const tab = state.invoiceTab || 'studio';
-  const totals = computeInvoiceTotals(inv);
-
-  const studioHtml = `
-    <!-- THEME & FRAME DESIGNER STRIP -->
-    <div class="card" style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-        <div>
-          <div class="eyebrow" style="color:var(--primary);">Designer Palette</div>
-          <div style="font-size:15px;font-weight:700;margin-top:2px;">Colorful Luxury Invoice Themes</div>
-        </div>
-        <div class="segmented" style="margin:0;width:auto;min-width:190px;">
-          <button class="seg-btn ${inv.frameStyle === 'colorful' ? 'active' : ''}" onclick="setInvoiceFrameStyle('colorful')">Colorful</button>
-          <button class="seg-btn ${inv.frameStyle === 'classic' ? 'active' : ''}" onclick="setInvoiceFrameStyle('classic')">Classic Frame</button>
-        </div>
-      </div>
-
-      <div class="palette-strip">
-        ${Object.values(INVOICE_PALETTES).map(p => `
-          <button class="palette-pill ${inv.palette === p.id ? 'active' : ''}" onclick="setInvoicePalette('${p.id}')">
-            <span class="palette-dot" style="background:linear-gradient(135deg, ${p.primary}, ${p.secondary});"></span>
-            <span>${p.name}</span>
-          </button>
-        `).join('')}
-      </div>
-    </div>
-
-    <!-- LIVE COLORFUL INVOICE PREVIEW + 1-CLICK EXPORTS -->
-    <div class="card" style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-        <div>
-          <div class="eyebrow" style="color:var(--primary);">Live A4 Sheet Preview</div>
-          <div style="font-size:15px;font-weight:700;margin-top:2px;">Instant Download &amp; Google Sheets</div>
-        </div>
-        <span class="badge badge-violet mono" id="editorGrandTotalBadge">${formatINR(totals.grandTotal)}</span>
-      </div>
-
-      <div id="liveInvoicePreviewHost" class="inv-preview-stage">
-        ${buildLiveInvoicePreviewMarkup(inv)}
-      </div>
-
-      <div class="export-action-grid" style="margin-top:14px;">
-        <button class="btn btn-primary" onclick="downloadInvoicePDF()">
-          ${ICONS.receipt} <span>Download PDF</span>
-        </button>
-        <button class="btn btn-outline" onclick="downloadInvoicePNG()">
-          ${ICONS.download} <span>Download Image</span>
-        </button>
-        <button class="btn btn-soft" onclick="exportInvoicesGoogleSheetsCSV(true)">
-          ${ICONS.cloud} <span>Google Sheets CSV</span>
-        </button>
-        <button class="btn btn-primary" onclick="saveInvoiceToCloud()">
-          ${ICONS.cloud} <span>Save to Cloud</span>
-        </button>
-      </div>
-      <div class="dual-actions" style="margin-top:8px;">
-        <button class="btn btn-outline btn-sm" onclick="saveCurrentInvoiceToLedger(false)">
-          ${ICONS.check} <span>Save Local Draft</span>
-        </button>
-        <button class="btn btn-soft btn-sm" onclick="openSavedInvoiceVault()">
-          ${ICONS.privacy} <span>Open My Saved Vault</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- EDITABLE FORM: BUSINESS & META -->
-    <div class="card" style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
-        <div class="eyebrow" style="color:var(--primary);">1. Business &amp; Invoice Details</div>
-        <button class="btn btn-outline btn-sm" onclick="resetInvoiceDraft()">New Invoice</button>
-      </div>
-
-      <div class="spec-grid" style="margin-bottom:10px;">
-        <div>
-          <label class="field-label">Invoice Number</label>
-          <input class="input mono" value="${escapeHtml(inv.invoiceNo)}" oninput="updateInvoiceField('invoiceNo', this.value)" />
-        </div>
-        <div>
-          <label class="field-label">Status</label>
-          <select class="select" onchange="updateInvoiceField('status', this.value)">
-            ${['Paid', 'Pending', 'Partial', 'Proforma'].map(s => `<option ${inv.status === s ? 'selected' : ''}>${s}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-
-      <div class="spec-grid" style="margin-bottom:10px;">
-        <div>
-          <label class="field-label">Invoice Date</label>
-          <input class="input mono" type="date" value="${escapeHtml(inv.invoiceDate)}" onchange="updateInvoiceField('invoiceDate', this.value)" />
-        </div>
-        <div>
-          <label class="field-label">Due Date</label>
-          <input class="input mono" type="date" value="${escapeHtml(inv.dueDate)}" onchange="updateInvoiceField('dueDate', this.value)" />
-        </div>
-      </div>
-
-      <div style="display:grid;gap:10px;">
-        <div>
-          <label class="field-label">Your Business Name</label>
-          <input class="input" value="${escapeHtml(inv.businessName)}" oninput="updateInvoiceField('businessName', this.value)" />
-        </div>
-        <div>
-          <label class="field-label">Business Address</label>
-          <input class="input" value="${escapeHtml(inv.businessAddress)}" oninput="updateInvoiceField('businessAddress', this.value)" />
-        </div>
-        <div class="spec-grid">
-          <div>
-            <label class="field-label">Business Phone</label>
-            <input class="input" value="${escapeHtml(inv.businessPhone)}" oninput="updateInvoiceField('businessPhone', this.value)" />
-          </div>
-          <div>
-            <label class="field-label">Business Email</label>
-            <input class="input" value="${escapeHtml(inv.businessEmail)}" oninput="updateInvoiceField('businessEmail', this.value)" />
-          </div>
-        </div>
-        <div>
-          <label class="field-label">GSTIN / Website</label>
-          <input class="input mono" value="${escapeHtml(inv.businessWebsite)}" oninput="updateInvoiceField('businessWebsite', this.value)" />
-        </div>
-      </div>
-    </div>
-
-    <!-- EDITABLE FORM: BILL TO & PAYMENT -->
-    <div class="card" style="margin-bottom:14px;">
-      <div class="eyebrow" style="color:var(--primary);margin-bottom:12px;">2. Bill To (Customer) &amp; Payment</div>
-      <div style="display:grid;gap:10px;">
-        <div class="spec-grid">
-          <div>
-            <label class="field-label">Customer Name</label>
-            <input class="input" value="${escapeHtml(inv.clientName)}" oninput="updateInvoiceField('clientName', this.value)" />
-          </div>
-          <div>
-            <label class="field-label">Customer Phone</label>
-            <input class="input" value="${escapeHtml(inv.clientPhone)}" oninput="updateInvoiceField('clientPhone', this.value)" />
-          </div>
-        </div>
-        <div>
-          <label class="field-label">Customer Address</label>
-          <input class="input" value="${escapeHtml(inv.clientAddress)}" oninput="updateInvoiceField('clientAddress', this.value)" />
-        </div>
-        <div class="spec-grid">
-          <div>
-            <label class="field-label">Customer Email</label>
-            <input class="input" value="${escapeHtml(inv.clientEmail)}" oninput="updateInvoiceField('clientEmail', this.value)" />
-          </div>
-          <div>
-            <label class="field-label">Payment Method</label>
-            <input class="input" value="${escapeHtml(inv.paymentMethod)}" oninput="updateInvoiceField('paymentMethod', this.value)" />
-          </div>
-        </div>
-        <div>
-          <label class="field-label">Bank / UPI Information</label>
-          <input class="input" value="${escapeHtml(inv.paymentDetails)}" oninput="updateInvoiceField('paymentDetails', this.value)" />
-        </div>
-      </div>
-    </div>
-
-    <!-- EDITABLE FORM: LINE ITEMS -->
-    <div class="card" style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
-        <div class="eyebrow" style="color:var(--primary);">3. Line Items &amp; Auto Calculations</div>
-        <button class="btn btn-soft btn-sm" onclick="addInvoiceItem()">+ Add Item</button>
-      </div>
-
-      ${(inv.items || []).map((it, idx) => `
-        <div class="inv-item-editor">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
-            <span class="mono" style="font-size:11.5px;font-weight:700;color:var(--primary);">Item #${idx + 1}</span>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span class="mono" id="invRowTotal_${idx}" style="font-size:13px;font-weight:700;">${formatINR((Number(it.qty) || 0) * (Number(it.price) || 0))}</span>
-              <button style="color:var(--ink-tertiary);padding:4px;" onclick="removeInvoiceItem(${idx})" aria-label="Remove item">${ICONS.trash}</button>
-            </div>
-          </div>
-          <input class="input" style="margin-bottom:8px;" placeholder="Product or service description..." value="${escapeHtml(it.desc)}" oninput="updateInvoiceItem(${idx}, 'desc', this.value)" />
-          <div class="inv-item-nums">
-            <div>
-              <label class="field-label">Qty</label>
-              <input class="input mono" type="number" min="0" value="${it.qty}" oninput="updateInvoiceItem(${idx}, 'qty', this.value)" />
-            </div>
-            <div>
-              <label class="field-label">Unit</label>
-              <input class="input" value="${escapeHtml(it.unit)}" oninput="updateInvoiceItem(${idx}, 'unit', this.value)" />
-            </div>
-            <div>
-              <label class="field-label">Rate (₹)</label>
-              <input class="input mono" type="number" min="0" value="${it.price}" oninput="updateInvoiceItem(${idx}, 'price', this.value)" />
-            </div>
-          </div>
-        </div>
-      `).join('')}
-
-      <div class="spec-grid" style="margin-top:12px;">
-        <div>
-          <label class="field-label">Discount (%)</label>
-          <input class="input mono" type="number" min="0" max="100" value="${inv.discountPct}" oninput="updateInvoiceField('discountPct', this.value)" />
-        </div>
-        <div>
-          <label class="field-label">GST / Tax (%)</label>
-          <input class="input mono" type="number" min="0" max="100" value="${inv.taxPct}" oninput="updateInvoiceField('taxPct', this.value)" />
-        </div>
-      </div>
-
-      <div style="margin-top:10px;">
-        <label class="field-label">Terms &amp; Comments</label>
-        <textarea class="textarea" style="min-height:74px;" oninput="updateInvoiceField('terms', this.value)">${escapeHtml(inv.terms)}</textarea>
-      </div>
-      <div style="margin-top:10px;">
-        <label class="field-label">Prepared &amp; Approved By (Signature)</label>
-        <input class="input" value="${escapeHtml(inv.approvedBy)}" oninput="updateInvoiceField('approvedBy', this.value)" />
-      </div>
-    </div>
-
-    <!-- GOOGLE SHEETS LIVE CLOUD SYNC -->
-    <div class="card">
-      <div class="eyebrow" style="color:var(--emerald);margin-bottom:4px;">Google Sheets Integration</div>
-      <h3 style="font-size:16.5px;font-weight:700;margin:0 0 6px;">Store Directly in Your Google Sheet / CSV</h3>
-      <p style="font-size:12.5px;color:var(--ink-secondary);margin:0 0 12px;">
-        Export all invoices as a Google Sheets ready CSV anytime, or paste your Google Apps Script Web App URL below to push rows live into your Google Sheet.
-      </p>
-      <div style="margin-bottom:10px;">
-        <label class="field-label">Google Apps Script Web App URL (Optional for 1-Click Cloud Push)</label>
-        <input class="input" placeholder="https://script.google.com/macros/s/.../exec" value="${escapeHtml(state.googleSheetWebhook)}" onchange="updateGoogleSheetUrl(this.value)" />
-      </div>
-      <div class="dual-actions">
-        <button class="btn btn-primary btn-sm" onclick="syncInvoiceToGoogleSheet()">
-          ${ICONS.cloud} <span>Push to Sheet</span>
-        </button>
-        <button class="btn btn-outline btn-sm" onclick="copyAppsScriptSnippet()">
-          ${ICONS.receipt} <span>Copy Sheet Script</span>
-        </button>
-      </div>
-      <details style="margin-top:12px;background:var(--surface-subtle);border:1px solid var(--border);border-radius:12px;padding:10px 12px;">
-        <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--primary);">View Google Sheets Apps Script Code (Extensions &rarr; Apps Script)</summary>
-        <pre class="mono" style="margin:8px 0 0;padding:10px;border-radius:10px;background:#0B0914;color:#E2DCFA;font-size:11px;overflow-x:auto;white-space:pre;">function doPost(e) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var d = JSON.parse(e.postData.contents);
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(["Invoice No","Date","Due Date","Status","Business","Customer","Phone","Email","Items","Subtotal","Discount %","GST %","Grand Total","Payment"]);
-  }
-  sheet.appendRow([d.invoiceNo,d.invoiceDate,d.dueDate,d.status,d.businessName,d.clientName,d.clientPhone,d.clientEmail,d.items,d.subtotal,d.discountPct,d.taxPct,d.grandTotal,d.paymentMethod]);
-  return ContentService.createTextOutput("OK");
-}</pre>
-      </details>
-    </div>
-  `;
-
-  const ledgerHtml = `
-    <div class="card" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-      <div>
-        <div class="eyebrow" style="color:var(--primary);">Google Sheets Ready Vault</div>
-        <div style="font-size:16px;font-weight:700;margin-top:2px;">${state.invoices.length} Saved Invoice(s)</div>
-      </div>
-      <button class="btn btn-primary btn-sm" onclick="exportInvoicesGoogleSheetsCSV(false)">
-        ${ICONS.download} <span>Export All CSV</span>
-      </button>
-    </div>
-
-    ${state.invoices.length === 0 ? `
-      <div class="card" style="text-align:center;color:var(--ink-tertiary);padding:28px;">
-        No invoices saved yet. Design one in Invoice Studio and tap Save to Vault.
-      </div>
-    ` : state.invoices.map(item => {
-      const itTot = computeInvoiceTotals(item);
-      const pal = getPalette(item.palette);
+  function renderInvoiceStudioInner() {
+    const esc = window.esc;
+    const ic = window.ic;
+    const calc = calculateInvoiceTotals(draft);
+    const cs = typeof window.getCloudState === 'function' ? window.getCloudState() : { checkingInvoiceAuth: false, isAdmin: false };
+
+    // 1. Strict Admin-Only Guard on invoice.html
+    if (cs.checkingInvoiceAuth) {
       return `
-        <div class="card" style="padding:16px;margin-bottom:10px;">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;">
-            <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-              <span class="palette-dot" style="width:16px;height:16px;background:linear-gradient(135deg, ${pal.primary}, ${pal.secondary});"></span>
-              <div style="min-width:0;">
-                <div style="font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.clientName)}</div>
-                <div class="mono" style="font-size:11.5px;color:var(--ink-tertiary);">${escapeHtml(item.invoiceNo)} &middot; ${formatDate(item.invoiceDate)}</div>
-              </div>
-            </div>
-            <div style="text-align:right;flex-shrink:0;">
-              <div class="mono" style="font-size:15px;font-weight:800;color:var(--primary);">${formatINR(itTot.grandTotal)}</div>
-              <span class="badge badge-violet" style="padding:2px 8px;font-size:10px;margin-top:3px;">${escapeHtml(item.status)}</span>
-            </div>
-          </div>
+        <div class="card" style="text-align:center;padding:42px 20px;margin:20px 0;">
+          <span class="badge badge-purple" style="margin-bottom:10px;">${ic('shield')} Verifying Admin Session</span>
+          <h1 class="page-title serif">Checking Firebase Admin Authorization...</h1>
+          <p class="page-desc" style="margin:8px auto 0;">Invoice Generator is restricted exclusively to verified Admin UID <code>${AUTHORIZED_ADMIN_UID}</code>.</p>
+        </div>
+      `;
+    }
 
-          <div class="export-action-grid">
-            <button class="btn btn-primary btn-sm" onclick="downloadInvoicePDF('${item.id}')">${ICONS.receipt} <span>PDF</span></button>
-            <button class="btn btn-outline btn-sm" onclick="downloadInvoicePNG('${item.id}')">${ICONS.download} <span>Image</span></button>
-            <button class="btn btn-soft btn-sm" onclick="loadSavedInvoiceIntoEditor('${item.id}')">${ICONS.notes} <span>Edit</span></button>
-            <button class="btn btn-danger-outline btn-sm" onclick="deleteSavedInvoice('${item.id}')">${ICONS.trash} <span>Delete</span></button>
+    if (!cs.isAdmin) {
+      clearTimeout(redirectTimer);
+      redirectTimer = setTimeout(() => {
+        window.location.replace('index.html');
+      }, 2200);
+
+      return `
+        <div class="card" style="text-align:center;padding:42px 24px;margin:24px auto;max-width:560px;border:2px solid var(--rose);">
+          <span class="badge badge-rose" style="margin-bottom:12px;">${ic('lock')} Admin-Only Restricted Vault</span>
+          <h1 class="page-title serif" style="margin-bottom:10px;">Admin Authentication Required</h1>
+          <p style="font-size:14px;color:var(--ink-secondary);line-height:1.6;margin-bottom:18px;">
+            The Manual Bill Generator &amp; Google Drive Archive is locked strictly to the verified AquaVault Admin account (UID: <code>${AUTHORIZED_ADMIN_UID}</code>). Redirecting you to the public warranty landing page...
+          </p>
+          <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
+            <a href="admin/" class="btn btn-primary" style="text-decoration:none;">${ic('lock')} Sign In at Admin Console</a>
+            <a href="index.html" class="btn btn-outline" style="text-decoration:none;">Return to Landing Page</a>
           </div>
         </div>
       `;
-    }).join('')}
-  `;
+    }
 
-  return `
-    <div class="page-view">
-      <div class="page-header">
-        <div class="page-eyebrow">Flagship Billing Studio</div>
-        <h1 class="page-h1">Invoice Generator</h1>
-        <p class="page-sub">Design colorful luxury invoices, export instant PDF &amp; HD PNG images, and store directly in Google Sheets CSV.</p>
+    // Load private customers & invoices once Admin is verified
+    loadPrivateAdminVaultFromFirestore();
+
+    return `
+      <!-- Top Header & 1-Click Actions -->
+      <div class="page-header no-print">
+        <div>
+          <div class="page-eyebrow">${ic('shield')} Admin-Only Billing Studio &bull; Auto-Google Drive Archive</div>
+          <h1 class="page-title serif">Manual GST Bill Generator &amp; Drive Vault</h1>
+          <p class="page-desc">Select an existing customer from <code>private_customers</code> or manually enter details. Clicking <strong>Generate &amp; Save Bill</strong> permanently saves to Firestore and your Google Drive folder.</p>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <button class="btn btn-primary" onclick="generateAndSaveAdminBill()" ${savingBillBusy ? 'disabled' : ''}>
+            ${ic('cloud')} ${savingBillBusy ? 'Saving to Firestore & Drive...' : 'Generate & Save Bill (Firestore + Drive)'}
+          </button>
+          <button class="btn btn-soft" onclick="downloadInvoiceImagePng()">
+            ${ic('download')} Download PNG
+          </button>
+          <button class="btn btn-outline" onclick="downloadInvoicePdf()">
+            ${ic('receipt')} Save PDF
+          </button>
+          <a href="admin/" class="btn btn-outline" style="text-decoration:none;">
+            ${ic('lock')} Back to Admin
+          </a>
+        </div>
       </div>
 
-      <div class="segmented" role="tablist">
-        <button class="seg-btn ${tab === 'studio' ? 'active' : ''}" onclick="setInvoiceSubTab('studio')">Invoice Studio</button>
-        <button class="seg-btn ${tab === 'ledger' ? 'active' : ''}" onclick="setInvoiceSubTab('ledger')">Saved &amp; CSV (${state.invoices.length})</button>
+      <!-- Theme Palette Bar & Auto-Fill Existing Customer Selector -->
+      <div class="card no-print" style="margin-bottom:20px;padding:18px 20px;">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;">
+          <div>
+            <div style="font-size:11px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--primary);margin-bottom:8px;">
+              1. Pick Luxury Color Theme
+            </div>
+            <div class="inv-palette-bar">
+              ${Object.values(PALETTES).map(p => `
+                <button
+                  type="button"
+                  class="inv-swatch-btn ${draft.palette === p.id ? 'active' : ''}"
+                  onclick="setInvoicePalette('${p.id}')"
+                >
+                  <span class="inv-swatch-dot" style="background:${p.primary};"></span>
+                  <span>${esc(p.name)}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:11px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--primary);margin-bottom:8px;">
+              2. Template Frame
+            </div>
+            <div class="pill-tabs">
+              <button class="pill-tab ${draft.frameStyle === 'colorful' ? 'active' : ''}" onclick="setInvoiceFrameStyle('colorful')">
+                Colorful Executive
+              </button>
+              <button class="pill-tab ${draft.frameStyle === 'classic' ? 'active' : ''}" onclick="setInvoiceFrameStyle('classic')">
+                Classic Double-Border
+              </button>
+            </div>
+          </div>
+
+          <div style="min-width:250px;flex:1;max-width:360px;">
+            <div style="font-size:11px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--primary);margin-bottom:6px;">
+              3. Auto-Fill from Private Customer Record (Or Type Manually)
+            </div>
+            <select class="select" onchange="selectExistingCustomerForBill(this.value)">
+              <option value="">-- Manual Customer Entry --</option>
+              ${privateCustomers.map(c => `
+                <option value="${esc(c.id)}" ${draft.selectedCustomerId === c.id ? 'selected' : ''}>
+                  ${esc(c.customerName)} (${esc(c.mobileNumber || 'No Phone')}) — ${esc(c.modelName)}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
       </div>
 
-      ${tab === 'studio' ? studioHtml : ledgerHtml}
-    </div>
-  `;
-}
+      <!-- Main Split Workspace: Left Manual Editor / Right Live Printable Invoice -->
+      <div class="inv-studio-grid">
+        <div class="inv-editor-col no-print">
+          <!-- Customer Name, Mobile Number, Place/Address, Hardware Type -->
+          <div class="card" style="margin-bottom:16px;">
+            <div class="card-header" style="margin-bottom:12px;">
+              <div>
+                <h2 class="card-title">Customer &amp; Bill Details</h2>
+                <p class="card-subtitle">Stored strictly in private Admin collections &amp; Google Drive</p>
+              </div>
+              <span id="invKpiGrandTotal" class="badge badge-purple mono" style="font-size:13px;">${fmtMoney(calc.grandTotal)}</span>
+            </div>
+
+            <div class="grid-2" style="gap:10px;">
+              <div class="form-group">
+                <label class="form-label">Customer Full Name</label>
+                <input class="input" value="${esc(draft.clientName)}" placeholder="e.g. Rajesh Verma" oninput="updateInvoiceField('clientName', this.value)" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Customer Mobile Number</label>
+                <input class="input mono" value="${esc(draft.clientPhone)}" placeholder="+91 98765 43210" oninput="updateInvoiceField('clientPhone', this.value)" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Customer Place / Full Address</label>
+              <input class="input" value="${esc(draft.clientAddress)}" placeholder="House/Flat, Area, City, PIN" oninput="updateInvoiceField('clientAddress', this.value)" />
+            </div>
+
+            <div class="grid-2" style="gap:10px;">
+              <div class="form-group">
+                <label class="form-label">Invoice Number</label>
+                <input class="input mono" value="${esc(draft.invoiceNo)}" oninput="updateInvoiceField('invoiceNo', this.value)" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Payment Status</label>
+                <select class="select" onchange="updateInvoiceField('status', this.value)">
+                  <option value="PAID" ${draft.status === 'PAID' ? 'selected' : ''}>PAID</option>
+                  <option value="PENDING" ${draft.status === 'PENDING' ? 'selected' : ''}>PENDING</option>
+                  <option value="OVERDUE" ${draft.status === 'OVERDUE' ? 'selected' : ''}>OVERDUE</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid-2" style="gap:10px;">
+              <div class="form-group">
+                <label class="form-label">Invoice Date</label>
+                <input type="date" class="input mono" value="${esc(draft.invoiceDate)}" oninput="updateInvoiceField('invoiceDate', this.value)" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Due Date</label>
+                <input type="date" class="input mono" value="${esc(draft.dueDate)}" oninput="updateInvoiceField('dueDate', this.value)" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Line Items, Quantity, Price, Discount & GST -->
+          <div class="card" style="margin-bottom:16px;">
+            <div class="card-header" style="margin-bottom:12px;">
+              <div>
+                <h2 class="card-title">Models, Quantity, Price, Discount &amp; GST</h2>
+                <p class="card-subtitle">Live automatic subtotal, discount &amp; GST calculation</p>
+              </div>
+              <button type="button" class="btn btn-sm btn-primary" onclick="addInvoiceLineItem()">
+                ${ic('plus')} Add Model Row
+              </button>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;">
+              ${draft.items.map((it, idx) => `
+                <div class="inv-line-editor">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <span class="badge badge-purple mono">Item #${idx + 1}</span>
+                    <button type="button" class="btn btn-sm btn-outline" style="padding:3px 8px;color:var(--rose);" onclick="removeInvoiceLineItem(${idx})">
+                      ${ic('trash')} Remove
+                    </button>
+                  </div>
+                  <div class="form-group" style="margin-bottom:8px;">
+                    <input class="input" placeholder="Product Model (e.g. AquaVault Pro-X7 Controller)" value="${esc(it.desc)}" oninput="updateInvoiceLineItem(${idx}, 'desc', this.value)" />
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:8px;">
+                    <div>
+                      <label class="form-label" style="font-size:10px;">Quantity</label>
+                      <input type="number" min="1" step="1" class="input mono" value="${it.qty}" oninput="updateInvoiceLineItem(${idx}, 'qty', this.value)" />
+                    </div>
+                    <div>
+                      <label class="form-label" style="font-size:10px;">Unit</label>
+                      <input class="input" value="${esc(it.unit)}" oninput="updateInvoiceLineItem(${idx}, 'unit', this.value)" />
+                    </div>
+                    <div>
+                      <label class="form-label" style="font-size:10px;">Unit Price (₹)</label>
+                      <input type="number" min="0" step="50" class="input mono" value="${it.price}" oninput="updateInvoiceLineItem(${idx}, 'price', this.value)" />
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div class="grid-2" style="gap:10px;">
+              <div class="form-group">
+                <label class="form-label">Discount (%)</label>
+                <input type="number" min="0" max="100" step="0.5" class="input mono" value="${draft.discountPct}" oninput="updateInvoiceField('discountPct', this.value)" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">GST / Tax Rate (%)</label>
+                <input type="number" min="0" max="50" step="0.5" class="input mono" value="${draft.taxPct}" oninput="updateInvoiceField('taxPct', this.value)" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Authorized Signatory Name</label>
+              <input class="input" value="${esc(draft.signatory)}" oninput="updateInvoiceField('signatory', this.value)" />
+            </div>
+
+            <button type="button" class="btn btn-primary" style="width:100%;" onclick="generateAndSaveAdminBill()" ${savingBillBusy ? 'disabled' : ''}>
+              ${ic('check')} ${savingBillBusy ? 'Saving Bill...' : 'Generate & Save Bill Permanently'}
+            </button>
+          </div>
+
+          <!-- Automatic Google Drive Archive & Sheets Webhook Card -->
+          <div class="card">
+            <div class="card-header" style="margin-bottom:10px;">
+              <div>
+                <h2 class="card-title">Automatic Google Drive Permanent Backup</h2>
+                <p class="card-subtitle">Every generated bill is saved as a PDF in your Google Drive folder <code>AquaVault_Permanent_Bills</code></p>
+              </div>
+              <span class="badge badge-emerald">Drive + Firestore</span>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Google Apps Script Web App URL (<code>Code.gs</code> /exec URL)</label>
+              <input
+                class="input mono"
+                placeholder="https://script.google.com/macros/s/.../exec"
+                value="${esc(draft.googleSheetWebhook || '')}"
+                oninput="updateInvoiceField('googleSheetWebhook', this.value)"
+              />
+            </div>
+
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+              <button type="button" class="btn btn-sm btn-soft" onclick="copyAppsScriptCodeToClipboard()">
+                ${ic('check')} Copy Ready-to-Paste Code.gs
+              </button>
+              <button type="button" class="btn btn-sm btn-outline" onclick="exportCurrentInvoiceCsv()">
+                ${ic('download')} Current Bill (.CSV)
+              </button>
+              <button type="button" class="btn btn-sm btn-outline" onclick="exportAllSavedInvoicesCsv()">
+                ${ic('download')} All Bills Ledger (.CSV)
+              </button>
+            </div>
+
+            <div style="border-top:1px solid var(--border);padding-top:12px;">
+              <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-tertiary);margin-bottom:8px;">
+                Saved Admin Bills Vault (${privateInvoices.length})
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;">
+                ${privateInvoices.map(inv => {
+                  const safeId = sanitizeId(inv.id);
+                  return `
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:10px;background:var(--bg-elevated);border:1px solid var(--border);">
+                    <div style="min-width:0;cursor:pointer;" onclick="loadSavedInvoiceIntoEditor('${safeId}')">
+                      <div class="mono" style="font-size:12px;font-weight:800;color:var(--primary);">${esc(inv.invoiceNo)}</div>
+                      <div style="font-size:11.5px;color:var(--ink-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${esc(inv.customerName || inv.clientName)} &bull; ${fmtMoney(inv.grandTotal || 0)} &bull; ${inv.driveSaved ? 'Drive Saved' : 'Firestore'}
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:4px;">
+                      <button class="btn btn-sm btn-soft" style="padding:4px 8px;" onclick="loadSavedInvoiceIntoEditor('${safeId}')">Load</button>
+                      <button class="btn btn-sm btn-outline" style="padding:4px 8px;color:var(--rose);" onclick="deleteSavedInvoice('${safeId}')">&times;</button>
+                    </div>
+                  </div>
+                `;
+                }).join('') || '<div style="font-size:12px;color:var(--ink-tertiary);">No saved bills yet. Click "Generate & Save Bill" above.</div>'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Live High-Contrast Printable Invoice Sheet -->
+        <div class="inv-preview-col">
+          <div class="inv-preview-toolbar no-print">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="status-dot"></span>
+              <span style="font-size:12px;font-weight:700;">Live Printable A4 Invoice Preview</span>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-sm btn-primary" onclick="generateAndSaveAdminBill()">${ic('cloud')} Generate &amp; Save Bill</button>
+              <button class="btn btn-sm btn-soft" onclick="downloadInvoiceImagePng()">${ic('download')} PNG Image</button>
+              <button class="btn btn-sm btn-outline" onclick="downloadInvoicePdf()">${ic('receipt')} Save PDF</button>
+            </div>
+          </div>
+
+          <div id="liveInvoicePreviewMount">
+            ${renderLiveInvoicePaperHtml()}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderInvoiceGeneratorPage() {
+    return `<div id="invoiceStudioMount">${renderInvoiceStudioInner()}</div>`;
+  }
+
+  Object.assign(window, {
+    renderInvoiceGeneratorPage,
+    selectExistingCustomerForBill,
+    updateInvoiceField,
+    setInvoicePalette,
+    setInvoiceFrameStyle,
+    updateInvoiceLineItem,
+    addInvoiceLineItem,
+    removeInvoiceLineItem,
+    generateAndSaveAdminBill,
+    loadSavedInvoiceIntoEditor,
+    deleteSavedInvoice,
+    exportCurrentInvoiceCsv,
+    exportAllSavedInvoicesCsv,
+    downloadInvoiceImagePng,
+    downloadInvoicePdf,
+    copyAppsScriptCodeToClipboard
+  });
+})();

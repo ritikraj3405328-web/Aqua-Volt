@@ -1,17 +1,14 @@
-const CACHE_NAME = 'aquavault-cache-v8';
+const CACHE_NAME = 'aquavault-cache-v9';
 const ASSETS = [
   './',
   './index.html',
-  './warranty.html',
   './devices.html',
-  './calculator.html',
   './invoice.html',
-  './notes.html',
   './hub.html',
   './privacy.html',
-  './styles.css?v=8',
-  './invoice-engine.js?v=8',
-  './app.js?v=8',
+  './styles.css?v=9',
+  './invoice-engine.js?v=9',
+  './app.js?v=9',
   './firebase-config.js',
   './manifest.webmanifest',
   './assets/icon-192.png',
@@ -44,7 +41,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Network-first for HTML, CSS, and JS so code updates take effect immediately and old cached screens are cleared
   if (
     event.request.mode === 'navigate' ||
     url.pathname.endsWith('.html') ||

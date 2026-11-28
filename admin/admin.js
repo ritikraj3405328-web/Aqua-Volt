@@ -1,16 +1,21 @@
 /* =========================================================================
    AQUAVAULT ADMIN COMMAND CENTER — CRASH-PROOF & SERVER-SIDE FIREBASE AUTH
    - Zero blank screens: Renders UI synchronously before any network/SDK call
-   - All Firebase initialization wrapped in defensive try/catch blocks
-   - Non-blocking status banner when firebase-config.js is not configured yet
-   - Firebase Authentication (signInWithEmailAndPassword + sendPasswordResetEmail)
-   - Single-Digit Anti-Bot Math Quiz (rollMathQuiz) before Firebase login
+   - Strict Admin UID Lock: Exclusively authorized for UID Y8zmDKBgubWIVvhufftRPPjG7HC3
+   - Dual-Vault Customer & Warranty Sync:
+     * Writes ONLY non-sensitive fields (customerName, modelName, hardwareType,
+       quantity, installDate, expiryDate, status, updatedAt) to `public_units`
+     * Writes sensitive fields (mobileNumber, address, serialNumber, warrantyDays,
+       basePrice, gstRate, invoiceNo) strictly to `private_customers`
+   - Removed toggle switches for deleted pages (Calculator, Notepad, separate Warranty page)
    - Automatic 30-Minute Inactivity Session Logout (1,800,000 ms watchdog)
-   - Clear non-admin email rejection & server-side Firestore Rules verification
    ========================================================================= */
 
 const ADMIN_CONFIG_KEY = 'aquavault_admin_config_v1';
 const CUSTOMER_STATE_KEY = 'aquavault_luxury_state_v2';
+const PUBLIC_UNITS_CACHE_KEY = 'aquavault_public_units_cache_v9';
+const PRIVATE_CUSTOMERS_CACHE_KEY = 'aquavault_private_customers_v9';
+const PRIVATE_INVOICES_CACHE_KEY = 'aquavault_private_invoices_v9';
 const ADMIN_THEME_KEY = 'aquavault_admin_theme_v1';
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes automatic logout
 const AUTHORIZED_ADMIN_UID = 'Y8zmDKBgubWIVvhufftRPPjG7HC3';
@@ -36,7 +41,6 @@ const ICONS = {
   wrench: `<svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.3 2.3-2.3-2.3 1.6-3z"/></svg>`,
   receipt: `<svg class="icon" viewBox="0 0 24 24"><path d="M5 3h14v18l-2.5-1.5L14 21l-2-1.5L10 21l-2.5-1.5L5 21V3z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>`,
   hub: `<svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>`,
-  users: `<svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 19.5c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.5c2.2.3 4 1.8 4.5 4.5"/></svg>`,
   key: `<svg class="icon" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4"/><path d="M11 11l9-9M17 5l3 3M14 8l2 2"/></svg>`,
   sun: `<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>`,
   moon: `<svg class="icon" viewBox="0 0 24 24"><path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a6.5 6.5 0 0 0 11 11z"/></svg>`,
@@ -52,18 +56,14 @@ const ICONS = {
 
 const ADMIN_TABS = [
   { id: 'dashboard', label: 'Overview', icon: 'dashboard', dock: true },
-  { id: 'features', label: 'Features', icon: 'sliders', dock: true },
-  { id: 'devices', label: 'Units', icon: 'devices', dock: true },
-  { id: 'tickets', label: 'Tickets', icon: 'wrench', dock: true },
-  { id: 'invoices', label: 'Invoices', icon: 'receipt', dock: false },
-  { id: 'hub', label: 'Apps Hub', icon: 'hub', dock: false },
-  { id: 'customers', label: 'Customer', icon: 'users', dock: false },
+  { id: 'devices', label: 'Units & Customers', icon: 'devices', dock: true },
+  { id: 'invoices', label: 'Invoices & Drive', icon: 'receipt', dock: true },
+  { id: 'hub', label: 'Apps Hub', icon: 'hub', dock: true },
+  { id: 'features', label: 'Features', icon: 'sliders', dock: false },
+  { id: 'tickets', label: 'Tickets', icon: 'wrench', dock: false },
   { id: 'security', label: 'Security', icon: 'shield', dock: true }
 ];
 
-/* =========================================================================
-   IN-MEMORY RUNTIME STATE & CRASH-PROOF FIREBASE INITIALIZATION
-   ========================================================================= */
 const session = {
   authenticated: false,
   checkingAuth: false,
@@ -71,14 +71,17 @@ const session = {
   firebaseConfigLoaded: true,
   firebaseInitError: '',
   user: null,
-  authView: 'login', // 'login' | 'forgot'
+  authView: 'login',
   authBusy: false,
   authError: '',
   authNotice: '',
   activeTab: 'dashboard',
+  editingCustomerId: '',
   mathQuiz: { a: 3, b: 4, op: '+', answer: 7 },
   ticketFilter: 'All',
   auditLogs: [],
+  privateCustomers: [],
+  privateInvoices: [],
   cloudSyncedAt: null,
   lastActivityAt: Date.now(),
   inactivityInterval: null,
@@ -133,30 +136,18 @@ function parseFirebaseConfigFromRawText(rawText) {
 async function resolveFirebaseConfigSafely() {
   if (isConfigObjectValid(runtimeFirebaseConfig)) return runtimeFirebaseConfig;
 
-  // 1. Try standard ES module dynamic import
   try {
-    const mod = await import('../firebase-config.js?v=8');
+    const mod = await import('../firebase-config.js?v=9');
     const candidate = mod?.firebaseConfig || mod?.default || globalThis.__AQUAVAULT_FIREBASE_CONFIG__;
     if (mod?.firestoreDatabaseId) {
       runtimeFirestoreDbId = mod.firestoreDatabaseId;
-    } else if (globalThis.__AQUAVAULT_FIRESTORE_DB_ID__) {
-      runtimeFirestoreDbId = globalThis.__AQUAVAULT_FIRESTORE_DB_ID__;
     }
     if (isConfigObjectValid(candidate)) {
       runtimeFirebaseConfig = candidate;
       return runtimeFirebaseConfig;
     }
-  } catch (err) {
-    console.warn('ES module import of firebase-config.js encountered issue, trying text fallback:', err?.message || err);
-  }
+  } catch {}
 
-  // 2. Fallback: Check globalThis
-  if (isConfigObjectValid(globalThis.__AQUAVAULT_FIREBASE_CONFIG__)) {
-    runtimeFirebaseConfig = globalThis.__AQUAVAULT_FIREBASE_CONFIG__;
-    return runtimeFirebaseConfig;
-  }
-
-  // 3. Fallback: Fetch raw firebase-config.js text and parse keys directly (handles missing "export" keyword)
   try {
     const res = await fetch('../firebase-config.js?v=' + Date.now(), { cache: 'no-store' });
     if (res.ok) {
@@ -169,12 +160,10 @@ async function resolveFirebaseConfigSafely() {
     }
   } catch {}
 
-  // 4. Fallback: Built-in aqua-vault project config
   if (isConfigObjectValid(DEFAULT_FIREBASE_CONFIG)) {
     runtimeFirebaseConfig = { ...DEFAULT_FIREBASE_CONFIG };
     return runtimeFirebaseConfig;
   }
-
   return null;
 }
 
@@ -225,7 +214,7 @@ async function initFirebaseSafely() {
         try { await fbSdk.signOut(auth); } catch {}
         session.authenticated = false;
         session.user = null;
-        session.authError = verifyResult.reason || `Access Denied: The account "${sanitizeText(user.email || 'unknown', 120)}" is not authorized as an AquaVault Admin.`;
+        session.authError = verifyResult.reason || `Access Denied: Account "${sanitizeText(user.email || 'unknown', 120)}" is not authorized as AquaVault Admin.`;
       } else {
         session.authenticated = true;
         session.user = user;
@@ -334,7 +323,7 @@ async function handleInactivityTimeout() {
 }
 
 /* =========================================================================
-   SINGLE-DIGIT MATH QUIZ GENERATOR (FRESH RANDOM ON EVERY REFRESH)
+   SINGLE-DIGIT MATH QUIZ GENERATOR
    ========================================================================= */
 function rollMathQuiz() {
   let prevSig = '';
@@ -371,124 +360,16 @@ function refreshMathQuizUI() {
 }
 
 /* =========================================================================
-   SHARED CUSTOMER CONFIG & STATE HELPERS
+   ADMIN CONFIG, PRIVATE CUSTOMERS & PUBLIC UNITS STATE HELPERS
    ========================================================================= */
-function getDefaultAdminConfig() {
-  return {
-    features: {
-      warranty: true,
-      devices: true,
-      calculator: true,
-      invoice: true,
-      notes: true,
-      hub: true,
-      privacy: true,
-      pwaPopup: true
-    },
-    maintenanceMode: false,
-    maintenanceMessage: 'AquaVault is undergoing a scheduled calibration upgrade. Your warranty data is completely safe and will be back shortly.',
-    announcementActive: false,
-    announcementText: 'Monsoon Tank Sensor Checkup Active — Book your complimentary inspection inside Devices & Service.',
-    defaultTheme: 'light',
-    invoiceDefaults: {
-      businessName: 'AquaVault Smart Systems Pvt. Ltd.',
-      businessAddress: 'Tower B, Indiranagar Tech Park, Bengaluru 560038',
-      businessPhone: '+91 80 4120 8899',
-      businessEmail: 'billing@aquavault.in',
-      paymentDetails: 'HDFC Bank • A/C: 50200084192011 • IFSC: HDFC0000184 • UPI: aquavault@hdfcbank',
-      gstPercent: 18,
-      palette: 'violet',
-      frameStyle: 'colorful',
-      googleSheetWebhook: ''
-    },
-    hubApps: [
-      { id: 'h1', name: 'AquaVault Official Store', category: 'Website', desc: 'Explore flagship dual-tank controllers, brass stoppers, and genuine spare sensors.', url: 'https://www.google.com/search?q=smart+water+level+controller', icon: 'globe', enabled: true },
-      { id: 'h2', name: 'HydroSense IoT Companion', category: 'New App', desc: 'Live Wi-Fi tank telemetry, motor runtime alerts, and water savings analytics.', url: 'https://www.google.com/search?q=smart+water+tank+monitor+app', icon: 'activity', enabled: true },
-      { id: 'h3', name: 'Tank Volume & Flow Estimator', category: 'Tool', desc: 'Calculate cylindrical & rectangular overhead tank capacity in liters and refill time.', url: 'https://www.google.com/search?q=water+tank+volume+calculator+liters', icon: 'gauge', enabled: true },
-      { id: 'h4', name: 'AquaCare Express Service Portal', category: 'Website', desc: 'Locate certified installation engineers, warranty policies, and wiring manuals.', url: 'https://www.google.com/search?q=water+level+controller+wiring+manual', icon: 'wrench', enabled: true },
-      { id: 'h5', name: 'Solar Pump Auto-Sync', category: 'New App', desc: 'Smart daylight pump scheduling for rooftop solar and borewell setups.', url: 'https://www.google.com/search?q=solar+water+pump+controller', icon: 'bolt', enabled: true },
-      { id: 'h6', name: 'Rainwater Harvest Planner', category: 'Tool', desc: 'Estimate rooftop monsoon water capture and sump storage sizing.', url: 'https://www.google.com/search?q=rainwater+harvesting+calculator', icon: 'droplet', enabled: true }
-    ],
-    updatedAt: new Date().toISOString()
-  };
-}
-
-function loadAdminConfig() {
-  const def = getDefaultAdminConfig();
-  try {
-    const raw = localStorage.getItem(ADMIN_CONFIG_KEY);
-    if (!raw) return def;
-    const parsed = JSON.parse(raw);
-    return {
-      ...def,
-      ...parsed,
-      features: { ...def.features, ...(parsed.features || {}) },
-      invoiceDefaults: { ...def.invoiceDefaults, ...(parsed.invoiceDefaults || {}) },
-      hubApps: Array.isArray(parsed.hubApps) ? parsed.hubApps : def.hubApps
-    };
-  } catch {
-    return def;
+function shiftDaysIso(delta, fromIso = null) {
+  let d = new Date();
+  if (fromIso) {
+    const [y, m, day] = String(fromIso).split('-').map(Number);
+    if (y && m && day) d = new Date(y, m - 1, day);
   }
-}
-
-function saveAdminConfig(cfg) {
-  cfg.updatedAt = new Date().toISOString();
-  try { localStorage.setItem(ADMIN_CONFIG_KEY, JSON.stringify(cfg)); } catch {}
-  syncCloudConfig(cfg);
-}
-
-function shiftDaysIso(delta) {
-  const d = new Date();
   d.setHours(0, 0, 0, 0);
   return new Date(d.getTime() + delta * 86400000).toISOString().slice(0, 10);
-}
-
-function loadCustomerState() {
-  const fallback = {
-    theme: 'light',
-    customer: {
-      name: 'Valued Customer',
-      accountId: 'AQV-2026-0001',
-      email: 'customer@example.com',
-      city: 'Bengaluru, India'
-    },
-    sync: { gmailSync: true, driveAutoSave: true, lastSynced: 'Just now' },
-    dpdp: { consentGranted: true, auditTrail: [] },
-    units: [
-      { id: 'u1', type: 'controller', model: 'AquaVault Pro-X7 Dual Tank Controller', serial: 'AV-WLC-88412', location: 'Overhead Tank (Terrace)', installDate: shiftDaysIso(-489), expiryDate: shiftDaysIso(241), invoiceNo: 'INV-AQV-2025-1104', basePrice: 8450, gstRate: 18 },
-      { id: 'u2', type: 'controller', model: 'AquaVault SumpGuard S4 Controller', serial: 'AV-WLC-88905', location: 'Underground Sump', installDate: shiftDaysIso(-330), expiryDate: shiftDaysIso(35), invoiceNo: 'INV-AQV-2025-2218', basePrice: 6800, gstRate: 18 },
-      { id: 'u3', type: 'stopper', model: 'AquaVault HydroSeal Brass Stopper', serial: 'AV-WST-55210', location: 'Main Terrace Inlet Valve', installDate: shiftDaysIso(-185), expiryDate: shiftDaysIso(545), invoiceNo: 'INV-AQV-2026-0412', basePrice: 4950, gstRate: 18 },
-      { id: 'u4', type: 'stopper', model: 'AquaVault SmartCutoff Valve V2', serial: 'AV-WST-51084', location: 'Garden Line & Utility', installDate: shiftDaysIso(-400), expiryDate: shiftDaysIso(-35), invoiceNo: 'INV-AQV-2024-8910', basePrice: 3600, gstRate: 18 }
-    ],
-    tickets: [
-      { id: 'SRV-9402', unitId: 'u2', unitName: 'AquaVault SumpGuard S4 Controller', issue: 'Annual Sensor Calibration', notes: 'Routine ultrasonic level calibration before monsoon.', status: 'Scheduled', date: shiftDaysIso(-2) },
-      { id: 'SRV-8817', unitId: 'u1', unitName: 'AquaVault Pro-X7 Dual Tank Controller', issue: 'Initial Commissioning Check', notes: 'Verified zero-overflow cutoff and dry-run protection.', status: 'Resolved', date: shiftDaysIso(-64) }
-    ],
-    notes: [],
-    invoices: []
-  };
-  try {
-    const raw = localStorage.getItem(CUSTOMER_STATE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return {
-      ...fallback,
-      ...parsed,
-      customer: { ...fallback.customer, ...(parsed.customer || {}) },
-      sync: { ...fallback.sync, ...(parsed.sync || {}) },
-      dpdp: { ...fallback.dpdp, ...(parsed.dpdp || {}) },
-      units: Array.isArray(parsed.units) ? parsed.units : fallback.units,
-      tickets: Array.isArray(parsed.tickets) ? parsed.tickets : fallback.tickets,
-      notes: Array.isArray(parsed.notes) ? parsed.notes : fallback.notes,
-      invoices: Array.isArray(parsed.invoices) ? parsed.invoices : fallback.invoices
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function saveCustomerState(cs) {
-  try { localStorage.setItem(CUSTOMER_STATE_KEY, JSON.stringify(cs)); } catch {}
 }
 
 function getDaysRemaining(expiryIso) {
@@ -502,6 +383,219 @@ function getDaysRemaining(expiryIso) {
 
 function formatINR(num) {
   return '₹' + Math.abs(Number(num) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+function getDefaultAdminConfig() {
+  return {
+    features: {
+      warranty: true,
+      devices: true,
+      invoice: true,
+      hub: true,
+      privacy: true,
+      pwaPopup: true
+    },
+    maintenanceMode: false,
+    maintenanceMessage: 'AquaVault is undergoing a scheduled calibration upgrade. Your warranty data is completely safe and will be back shortly.',
+    announcementActive: false,
+    announcementText: 'Monsoon Tank Sensor Checkup Active — Book your complimentary inspection inside Models & Service.',
+    defaultTheme: 'light',
+    invoiceDefaults: {
+      businessName: 'AquaVault Smart Systems Pvt. Ltd.',
+      businessAddress: 'Tower B, Indiranagar Tech Park, Bengaluru 560038',
+      businessPhone: '+91 80 4120 8899',
+      businessEmail: 'billing@aquavault.in',
+      paymentDetails: 'HDFC Bank • A/C: 50200084192011 • IFSC: HDFC0000184 • UPI: aquavault@hdfcbank',
+      gstPercent: 18,
+      palette: 'violet',
+      frameStyle: 'colorful',
+      googleSheetWebhook: ''
+    },
+    hubApps: [
+      { id: 'sellgst_pro', name: 'SellGst-Pro Billing & GST Suite', category: 'New App', desc: 'Instant GST invoice maker, smart inventory ledger, and business billing companion.', url: 'https://ritikraj3405328-web.github.io/SellGst-Pro/', icon: 'bolt', enabled: true },
+      { id: 'aquavault_portal', name: 'AquaVault Smart Trust Portal', category: 'Website', desc: 'Live public customer warranty tracker for Smart Water Level Controllers & Water Stoppers.', url: 'https://ritikraj3405328-web.github.io/Aqua-Volt/', icon: 'globe', enabled: true },
+      { id: 'h1', name: 'AquaVault Hardware Catalog', category: 'Website', desc: 'Explore flagship dual-tank controllers, brass motorized stoppers, and genuine spare sensors.', url: 'https://www.google.com/search?q=smart+water+level+controller', icon: 'globe', enabled: true },
+      { id: 'h2', name: 'Tank Volume & Flow Estimator', category: 'Tool', desc: 'Calculate cylindrical & rectangular overhead tank capacity in liters and refill time.', url: 'https://www.google.com/search?q=water+tank+volume+calculator+liters', icon: 'gauge', enabled: true },
+      { id: 'h3', name: 'Solar Pump Auto-Sync', category: 'New App', desc: 'Smart daylight pump scheduling for rooftop solar and borewell setups.', url: 'https://www.google.com/search?q=solar+water+pump+controller', icon: 'bolt', enabled: true },
+      { id: 'h4', name: 'Rainwater Harvest Planner', category: 'Tool', desc: 'Estimate rooftop monsoon water capture and sump storage sizing.', url: 'https://www.google.com/search?q=rainwater+harvesting+calculator', icon: 'droplet', enabled: true }
+    ],
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function loadAdminConfig() {
+  const def = getDefaultAdminConfig();
+  try {
+    const raw = localStorage.getItem(ADMIN_CONFIG_KEY);
+    if (!raw) return def;
+    const parsed = JSON.parse(raw);
+    const hubApps = Array.isArray(parsed.hubApps) && parsed.hubApps.length ? parsed.hubApps : def.hubApps;
+    if (!hubApps.some(a => String(a.name || '').toLowerCase().includes('sellgst'))) {
+      hubApps.unshift(def.hubApps[0]);
+    }
+    return {
+      ...def,
+      ...parsed,
+      features: { ...def.features, ...(parsed.features || {}) },
+      invoiceDefaults: { ...def.invoiceDefaults, ...(parsed.invoiceDefaults || {}) },
+      hubApps
+    };
+  } catch {
+    return def;
+  }
+}
+
+function saveAdminConfig(cfg) {
+  cfg.updatedAt = new Date().toISOString();
+  try { localStorage.setItem(ADMIN_CONFIG_KEY, JSON.stringify(cfg)); } catch {}
+  syncCloudConfig(cfg);
+}
+
+function getDefaultPrivateCustomers() {
+  return [
+    {
+      id: 'pub_u1',
+      customerName: 'Rajesh Verma',
+      mobileNumber: '+91 98450 11223',
+      address: '42 Park View Residency, Indiranagar, Bengaluru 560038',
+      modelName: 'AquaVault Pro-X7 Dual Tank Controller',
+      hardwareType: 'Water Level Controller',
+      quantity: 1,
+      serialNumber: 'AV-WLC-88412',
+      installDate: shiftDaysIso(-125),
+      expiryDate: shiftDaysIso(240),
+      warrantyDays: 365,
+      basePrice: 8450,
+      gstRate: 18,
+      invoiceNo: 'INV-AQV-2026-1104'
+    },
+    {
+      id: 'pub_u2',
+      customerName: 'Sandeep Kulkarni',
+      mobileNumber: '+91 98801 44556',
+      address: '18 Palm Grove Villa, Whitefield, Bengaluru 560066',
+      modelName: 'AquaVault HydroSeal Brass Stopper + Pro-X7',
+      hardwareType: 'Water Stopper',
+      quantity: 2,
+      serialNumber: 'AV-WST-55210',
+      installDate: shiftDaysIso(-180),
+      expiryDate: shiftDaysIso(185),
+      warrantyDays: 365,
+      basePrice: 6800,
+      gstRate: 18,
+      invoiceNo: 'INV-AQV-2026-1189'
+    },
+    {
+      id: 'pub_u3',
+      customerName: 'Meera Nair',
+      mobileNumber: '+91 97412 33890',
+      address: '9A Skyline Apartments, Koramangala, Bengaluru 560034',
+      modelName: 'AquaVault SumpGuard S4 Controller',
+      hardwareType: 'Water Level Controller',
+      quantity: 1,
+      serialNumber: 'AV-WLC-88905',
+      installDate: shiftDaysIso(-320),
+      expiryDate: shiftDaysIso(45),
+      warrantyDays: 365,
+      basePrice: 6800,
+      gstRate: 18,
+      invoiceNo: 'INV-AQV-2026-1240'
+    },
+    {
+      id: 'pub_u4',
+      customerName: 'Vikramaditya Singh',
+      mobileNumber: '+91 99002 77881',
+      address: '77 Green Glen Layout, HSR Sector 2, Bengaluru 560102',
+      modelName: 'AquaVault SmartCutoff Valve V2',
+      hardwareType: 'Water Stopper',
+      quantity: 1,
+      serialNumber: 'AV-WST-51084',
+      installDate: shiftDaysIso(-410),
+      expiryDate: shiftDaysIso(-45),
+      warrantyDays: 365,
+      basePrice: 4950,
+      gstRate: 18,
+      invoiceNo: 'INV-AQV-2025-8910'
+    }
+  ];
+}
+
+function loadPrivateCustomersList() {
+  if (session.privateCustomers && session.privateCustomers.length) {
+    return session.privateCustomers;
+  }
+  try {
+    const raw = localStorage.getItem(PRIVATE_CUSTOMERS_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) {
+        session.privateCustomers = parsed;
+        return parsed;
+      }
+    }
+  } catch {}
+  session.privateCustomers = getDefaultPrivateCustomers();
+  return session.privateCustomers;
+}
+
+function savePrivateCustomersAndSyncPublicCache(list) {
+  session.privateCustomers = list;
+  try {
+    localStorage.setItem(PRIVATE_CUSTOMERS_CACHE_KEY, JSON.stringify(list));
+    // Build strictly non-sensitive public cache (NEVER includes mobileNumber, address, or invoiceNo)
+    const publicOnly = list.map(c => ({
+      id: sanitizeId(c.id),
+      customerName: sanitizeText(c.customerName, 120),
+      modelName: sanitizeText(c.modelName, 140),
+      hardwareType: c.hardwareType === 'Water Stopper' ? 'Water Stopper' : 'Water Level Controller',
+      quantity: Math.max(1, parseInt(c.quantity, 10) || 1),
+      installDate: c.installDate,
+      expiryDate: c.expiryDate,
+      status: getDaysRemaining(c.expiryDate) === 0 ? 'EXPIRED' : 'ACTIVE'
+    }));
+    localStorage.setItem(PUBLIC_UNITS_CACHE_KEY, JSON.stringify(publicOnly));
+  } catch {}
+}
+
+function loadPrivateInvoicesList() {
+  if (session.privateInvoices && session.privateInvoices.length) {
+    return session.privateInvoices;
+  }
+  try {
+    const raw = localStorage.getItem(PRIVATE_INVOICES_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        session.privateInvoices = parsed;
+        return parsed;
+      }
+    }
+  } catch {}
+  return [];
+}
+
+function loadCustomerTicketsState() {
+  const fallback = {
+    tickets: [
+      { id: 'SRV-9402', unitId: 'pub_u2', unitName: 'Sandeep Kulkarni (AquaVault HydroSeal Brass Stopper)', issue: 'Annual Sensor Calibration', notes: 'Routine ultrasonic level calibration before monsoon.', status: 'Scheduled', date: shiftDaysIso(-2) },
+      { id: 'SRV-8817', unitId: 'pub_u1', unitName: 'Rajesh Verma (AquaVault Pro-X7 Controller)', issue: 'Initial Commissioning Check', notes: 'Verified zero-overflow cutoff and dry-run protection.', status: 'Resolved', date: shiftDaysIso(-64) }
+    ]
+  };
+  try {
+    const raw = localStorage.getItem(CUSTOMER_STATE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return {
+      ...parsed,
+      tickets: Array.isArray(parsed.tickets) ? parsed.tickets : fallback.tickets
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveCustomerTicketsState(cs) {
+  try { localStorage.setItem(CUSTOMER_STATE_KEY, JSON.stringify(cs)); } catch {}
 }
 
 /* =========================================================================
@@ -535,7 +629,7 @@ function showToast(msg) {
 }
 
 /* =========================================================================
-   FIRESTORE SERVER-SIDE ADMIN VERIFICATION & LIVE SYNC
+   FIRESTORE SERVER-SIDE ADMIN VERIFICATION & DUAL-VAULT SYNC
    ========================================================================= */
 async function appendCloudAudit(eventType, summary, severity = 'INFO') {
   const cleanSummary = sanitizeText(summary, 480);
@@ -564,6 +658,68 @@ async function appendCloudAudit(eventType, summary, severity = 'INFO') {
   }
 }
 
+async function syncSingleCustomerToDualFirestoreCollections(record) {
+  if (!db || !fbSdk || !session.user || !session.authenticated) return;
+  const docId = sanitizeId(record.id);
+  const remDays = getDaysRemaining(record.expiryDate);
+
+  // 1. Write ONLY non-sensitive fields to `public_units/{docId}` (Zero phone, zero address, zero bill)
+  const publicPayload = {
+    customerName: sanitizeText(record.customerName, 120),
+    modelName: sanitizeText(record.modelName, 140),
+    hardwareType: record.hardwareType === 'Water Stopper' ? 'Water Stopper' : 'Water Level Controller',
+    quantity: Math.max(1, Math.min(1000, parseInt(record.quantity, 10) || 1)),
+    installDate: sanitizeText(record.installDate, 20),
+    expiryDate: sanitizeText(record.expiryDate, 20),
+    status: remDays === 0 ? 'EXPIRED' : 'ACTIVE',
+    updatedAt: fbSdk.serverTimestamp()
+  };
+
+  // 2. Write full sensitive record to `private_customers/{docId}` (Admin-UID only)
+  const privateRef = fbSdk.doc(db, 'private_customers', docId);
+  const privateSnap = await fbSdk.getDoc(privateRef);
+  const privatePayload = {
+    customerName: sanitizeText(record.customerName, 120),
+    mobileNumber: sanitizeText(record.mobileNumber || '+91 00000 00000', 30),
+    address: sanitizeText(record.address || 'India', 250),
+    modelName: sanitizeText(record.modelName, 140),
+    hardwareType: record.hardwareType === 'Water Stopper' ? 'Water Stopper' : 'Water Level Controller',
+    quantity: Math.max(1, Math.min(1000, parseInt(record.quantity, 10) || 1)),
+    serialNumber: sanitizeText(record.serialNumber || ('AV-' + docId.toUpperCase()), 80),
+    installDate: sanitizeText(record.installDate, 20),
+    expiryDate: sanitizeText(record.expiryDate, 20),
+    warrantyDays: Math.max(0, Math.min(3650, parseInt(record.warrantyDays, 10) || 365)),
+    basePrice: Math.max(0, Number(record.basePrice) || 0),
+    gstRate: Math.max(0, Math.min(50, Number(record.gstRate) || 18)),
+    invoiceNo: sanitizeText(record.invoiceNo || ('INV-AQV-' + new Date().getFullYear()), 60),
+    updatedAt: fbSdk.serverTimestamp()
+  };
+
+  try {
+    await fbSdk.setDoc(fbSdk.doc(db, 'public_units', docId), publicPayload);
+    if (privateSnap.exists()) {
+      await fbSdk.setDoc(privateRef, privatePayload, { merge: true });
+    } else {
+      await fbSdk.setDoc(privateRef, { ...privatePayload, createdAt: fbSdk.serverTimestamp() });
+    }
+  } catch (err) {
+    console.warn('Dual-collection Firestore sync warning:', err?.message || err);
+  }
+}
+
+async function deleteCustomerFromDualFirestoreCollections(customerId) {
+  if (!db || !fbSdk || !session.user || !session.authenticated) return;
+  const docId = sanitizeId(customerId);
+  try {
+    await Promise.all([
+      fbSdk.deleteDoc(fbSdk.doc(db, 'public_units', docId)),
+      fbSdk.deleteDoc(fbSdk.doc(db, 'private_customers', docId))
+    ]);
+  } catch (err) {
+    console.warn('Dual-collection delete warning:', err?.message || err);
+  }
+}
+
 async function syncCloudConfig(cfg) {
   if (!db || !fbSdk || !session.user || !session.authenticated) return;
   try {
@@ -572,9 +728,7 @@ async function syncCloudConfig(cfg) {
     const payload = {
       featureWarranty: Boolean(cfg.features.warranty),
       featureDevices: Boolean(cfg.features.devices),
-      featureCalculator: Boolean(cfg.features.calculator),
       featureInvoice: Boolean(cfg.features.invoice),
-      featureNotes: Boolean(cfg.features.notes),
       featureHub: Boolean(cfg.features.hub),
       featurePrivacy: Boolean(cfg.features.privacy),
       featurePwaPopup: Boolean(cfg.features.pwaPopup),
@@ -617,6 +771,12 @@ async function syncCloudConfig(cfg) {
       }
     }
 
+    // Also sync all private customers to public_units & private_customers
+    const custList = loadPrivateCustomersList();
+    for (const c of custList) {
+      await syncSingleCustomerToDualFirestoreCollections(c);
+    }
+
     session.cloudSyncedAt = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   } catch (err) {
     console.warn('Firestore sync error:', err?.message || err);
@@ -657,6 +817,35 @@ async function verifyAndLoadAdminSession(user) {
       });
     }
 
+    // Load private_customers from Firestore (or seed default customers on first run)
+    try {
+      const custSnap = await fbSdk.getDocs(fbSdk.collection(db, 'private_customers'));
+      if (!custSnap.empty) {
+        const list = [];
+        custSnap.forEach(s => list.push({ id: s.id, ...s.data() }));
+        savePrivateCustomersAndSyncPublicCache(list);
+      } else {
+        const initialCustomers = loadPrivateCustomersList();
+        savePrivateCustomersAndSyncPublicCache(initialCustomers);
+        for (const c of initialCustomers) {
+          await syncSingleCustomerToDualFirestoreCollections(c);
+        }
+      }
+    } catch {}
+
+    // Load private_invoices from Firestore
+    try {
+      const invSnap = await fbSdk.getDocs(fbSdk.collection(db, 'private_invoices'));
+      if (!invSnap.empty) {
+        const invList = [];
+        invSnap.forEach(s => invList.push({ id: s.id, ...s.data() }));
+        invList.sort((a, b) => String(b.invoiceDate || '').localeCompare(String(a.invoiceDate || '')));
+        session.privateInvoices = invList;
+        try { localStorage.setItem(PRIVATE_INVOICES_CACHE_KEY, JSON.stringify(invList)); } catch {}
+      }
+    } catch {}
+
+    // Load appConfig & hubApps
     const cfgRef = fbSdk.doc(db, 'appConfig', 'global');
     const cfgSnap = await fbSdk.getDoc(cfgRef);
     const localCfg = loadAdminConfig();
@@ -668,9 +857,7 @@ async function verifyAndLoadAdminSession(user) {
         features: {
           warranty: d.featureWarranty !== false,
           devices: d.featureDevices !== false,
-          calculator: d.featureCalculator !== false,
           invoice: d.featureInvoice !== false,
-          notes: d.featureNotes !== false,
           hub: d.featureHub !== false,
           privacy: d.featurePrivacy !== false,
           pwaPopup: d.featurePwaPopup !== false
@@ -783,7 +970,7 @@ async function handleAdminLoginSubmit(e) {
       rollMathQuiz();
       session.authenticated = false;
       session.user = null;
-      session.authError = verifyResult.reason || `Unauthorized Account: "${email}" is not the designated AquaVault Admin in firestore.rules. Non-admin access is strictly blocked.`;
+      session.authError = verifyResult.reason || `Unauthorized Account: "${email}" is not the designated AquaVault Admin in firestore.rules.`;
       session.authBusy = false;
       render();
       return;
@@ -844,7 +1031,7 @@ async function handleForgotPasswordSubmit(e) {
 
   await resolveFirebaseConfigSafely();
   if (!isFirebaseConfigured()) {
-    session.authError = 'Firebase is not connected yet. Paste your Firebase Web App config in firebase-config.js.';
+    session.authError = 'Firebase is not connected yet.';
     render();
     return;
   }
@@ -931,13 +1118,13 @@ async function handleChangeFirebasePassword(e) {
 async function handleManualCloudSync() {
   const cfg = loadAdminConfig();
   await syncCloudConfig(cfg);
-  await appendCloudAudit('CONFIG_UPDATED', 'Manual full Firestore config & hub sync triggered', 'INFO');
+  await appendCloudAudit('CONFIG_UPDATED', 'Manual full Firestore config, public_units & private_customers sync triggered', 'INFO');
   render();
-  showToast('Synced configuration & Hub Apps to Firestore');
+  showToast('Synced all Customer Units, Config & Hub Apps to Firestore');
 }
 
 /* =========================================================================
-   ADMIN FEATURE CONTROL ACTIONS
+   ADMIN FEATURE CONTROL & DUAL-VAULT CUSTOMER/WARRANTY CRUD
    ========================================================================= */
 function setTab(tabId) {
   session.activeTab = tabId;
@@ -952,7 +1139,7 @@ function toggleFeatureFlag(key) {
   saveAdminConfig(cfg);
   appendCloudAudit('CONFIG_UPDATED', `Feature "${key}" turned ${cfg.features[key] ? 'ON' : 'OFF'}`, 'INFO');
   render();
-  showToast(`${key.toUpperCase()} is now ${cfg.features[key] ? 'ENABLED' : 'DISABLED'} in Customer App`);
+  showToast(`${key.toUpperCase()} is now ${cfg.features[key] ? 'ENABLED' : 'DISABLED'}`);
 }
 
 function toggleMaintenanceMode() {
@@ -961,7 +1148,7 @@ function toggleMaintenanceMode() {
   saveAdminConfig(cfg);
   appendCloudAudit('CONFIG_UPDATED', `Maintenance Mode switched ${cfg.maintenanceMode ? 'ON' : 'OFF'}`, 'WARNING');
   render();
-  showToast(cfg.maintenanceMode ? 'Maintenance Mode ACTIVE on Customer App' : 'Customer App is LIVE');
+  showToast(cfg.maintenanceMode ? 'Maintenance Mode ACTIVE on Landing Page' : 'Landing Page is LIVE');
 }
 
 function toggleAnnouncementActive() {
@@ -970,7 +1157,7 @@ function toggleAnnouncementActive() {
   saveAdminConfig(cfg);
   appendCloudAudit('CONFIG_UPDATED', `Broadcast Banner ${cfg.announcementActive ? 'ENABLED' : 'HIDDEN'}`, 'INFO');
   render();
-  showToast(cfg.announcementActive ? 'Broadcast Banner published to Customer App' : 'Broadcast Banner hidden');
+  showToast(cfg.announcementActive ? 'Broadcast Banner published to Landing Page' : 'Broadcast Banner hidden');
 }
 
 function saveBroadcastAndBranding(e) {
@@ -981,66 +1168,133 @@ function saveBroadcastAndBranding(e) {
   cfg.defaultTheme = document.getElementById('cfgDefaultTheme')?.value === 'dark' ? 'dark' : 'light';
   saveAdminConfig(cfg);
   appendCloudAudit('CONFIG_UPDATED', 'Updated broadcast banner, maintenance message & default theme', 'INFO');
-  showToast('Customer App branding & broadcast saved');
+  showToast('Public Landing Page branding & broadcast saved');
   render();
 }
 
-/* Units & Warranties CRUD */
-function extendUnitWarranty(unitId, extraDays) {
-  const cs = loadCustomerState();
-  const unit = cs.units.find(u => u.id === unitId);
-  if (!unit) return;
-  const [y, m, d] = unit.expiryDate.split('-').map(Number);
-  const base = new Date(y, m - 1, d);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const startFrom = base < today ? today : base;
-  const next = new Date(startFrom.getTime() + extraDays * 86400000);
-  unit.expiryDate = next.toISOString().slice(0, 10);
-  saveCustomerState(cs);
-  appendCloudAudit('WARRANTY_MODIFIED', `Extended warranty for ${unit.model} (${unit.serial}) by +${extraDays} days`, 'INFO');
-  render();
-  showToast(`Warranty extended +${extraDays} days (until ${unit.expiryDate})`);
-}
-
-function deleteUnit(unitId) {
-  const cs = loadCustomerState();
-  const found = cs.units.find(u => u.id === unitId);
-  cs.units = cs.units.filter(u => u.id !== unitId);
-  saveCustomerState(cs);
-  appendCloudAudit('WARRANTY_MODIFIED', `Removed hardware unit ${found ? found.serial : unitId}`, 'WARNING');
-  render();
-  showToast('Device removed from Customer Vault');
-}
-
-function addHardwareUnit(e) {
+/* Units & Customer Warranty Dual-Vault CRUD */
+async function saveCustomerWarrantyRecord(e) {
   e.preventDefault();
-  const model = sanitizeText(document.getElementById('newUnitModel')?.value || '', 120);
-  const type = document.getElementById('newUnitType')?.value === 'stopper' ? 'stopper' : 'controller';
-  const serial = sanitizeText(document.getElementById('newUnitSerial')?.value || '', 80).toUpperCase();
-  const location = sanitizeText(document.getElementById('newUnitLocation')?.value || '', 80);
-  const days = Math.max(30, Math.min(3650, Number(document.getElementById('newUnitDays')?.value || 365)));
-  const price = Math.max(0, Math.min(10000000, Number(document.getElementById('newUnitPrice')?.value || 6500)));
-  if (!model || !serial || !location) return showToast('Fill Model, Serial Number, and Location');
+  if (!session.authenticated || !session.user || session.user.uid !== AUTHORIZED_ADMIN_UID) {
+    return showToast('Unauthorized: Only verified Admin UID can modify customer units');
+  }
 
-  const cs = loadCustomerState();
-  const today = shiftDaysIso(0);
-  const expiry = shiftDaysIso(days);
-  cs.units.unshift({
-    id: 'u_' + Date.now().toString(36),
-    type,
-    model,
-    serial,
-    location,
-    installDate: today,
-    expiryDate: expiry,
-    invoiceNo: 'INV-AQV-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000),
-    basePrice: price,
-    gstRate: 18
-  });
-  saveCustomerState(cs);
-  appendCloudAudit('WARRANTY_MODIFIED', `Added new ${type}: ${model} (${serial}) with ${days}d warranty`, 'INFO');
+  const customerName = sanitizeText(document.getElementById('newCustName')?.value || '', 120);
+  const mobileNumber = sanitizeText(document.getElementById('newCustMobile')?.value || '', 30);
+  const address = sanitizeText(document.getElementById('newCustAddress')?.value || '', 250);
+  const modelName = sanitizeText(document.getElementById('newUnitModel')?.value || '', 140);
+  const hardwareType = document.getElementById('newUnitType')?.value === 'Water Stopper'
+    ? 'Water Stopper'
+    : 'Water Level Controller';
+  const quantity = Math.max(1, Math.min(1000, parseInt(document.getElementById('newUnitQty')?.value, 10) || 1));
+  const installDate = sanitizeText(document.getElementById('newUnitInstallDate')?.value || shiftDaysIso(0), 20);
+  const warrantyDays = Math.max(0, Math.min(3650, parseInt(document.getElementById('newUnitDays')?.value, 10) || 365));
+  const basePrice = Math.max(0, Math.min(100000000, Number(document.getElementById('newUnitPrice')?.value || 8450)));
+  const serialNumber = sanitizeText(document.getElementById('newUnitSerial')?.value || ('AV-' + Date.now().toString(36).toUpperCase()), 80).toUpperCase();
+
+  if (!customerName || !mobileNumber || !address || !modelName) {
+    return showToast('Fill Customer Name, Mobile Number, Location/Place, and Product Model');
+  }
+
+  const expiryDate = shiftDaysIso(warrantyDays, installDate);
+  const list = [...loadPrivateCustomersList()];
+
+  let record;
+  if (session.editingCustomerId) {
+    const idx = list.findIndex(c => c.id === session.editingCustomerId);
+    record = {
+      ...(idx >= 0 ? list[idx] : {}),
+      id: session.editingCustomerId,
+      customerName,
+      mobileNumber,
+      address,
+      modelName,
+      hardwareType,
+      quantity,
+      serialNumber,
+      installDate,
+      expiryDate,
+      warrantyDays,
+      basePrice,
+      gstRate: 18,
+      invoiceNo: (idx >= 0 && list[idx].invoiceNo) ? list[idx].invoiceNo : ('INV-AQV-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000))
+    };
+    if (idx >= 0) list[idx] = record;
+    else list.unshift(record);
+    session.editingCustomerId = '';
+  } else {
+    record = {
+      id: 'cust_' + Date.now().toString(36),
+      customerName,
+      mobileNumber,
+      address,
+      modelName,
+      hardwareType,
+      quantity,
+      serialNumber,
+      installDate,
+      expiryDate,
+      warrantyDays,
+      basePrice,
+      gstRate: 18,
+      invoiceNo: 'INV-AQV-' + new Date().getFullYear() + '-' + Math.floor(1000 + Math.random() * 9000)
+    };
+    list.unshift(record);
+  }
+
+  savePrivateCustomersAndSyncPublicCache(list);
+  await syncSingleCustomerToDualFirestoreCollections(record);
+  await appendCloudAudit('WARRANTY_MODIFIED', `Synced ${customerName} (${modelName} x${quantity}, ${warrantyDays}d warranty) to public_units & private_customers`, 'INFO');
   render();
-  showToast(`Added ${model} to Customer App`);
+  showToast(`Saved ${customerName} — Public Warranty & Private Contact Vault synced!`);
+}
+
+function editCustomerRecord(customerId) {
+  session.editingCustomerId = sanitizeId(customerId);
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelEditCustomerRecord() {
+  session.editingCustomerId = '';
+  render();
+}
+
+async function extendUnitWarranty(customerId, extraDays) {
+  const list = [...loadPrivateCustomersList()];
+  const unit = list.find(u => u.id === customerId);
+  if (!unit) return;
+
+  if (extraDays === 0) {
+    // Mark expired immediately (0 days remaining) without deleting record
+    unit.expiryDate = shiftDaysIso(-1);
+    unit.warrantyDays = 0;
+  } else {
+    const [y, m, d] = String(unit.expiryDate || shiftDaysIso(0)).split('-').map(Number);
+    const base = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const startFrom = base < today ? today : base;
+    const next = new Date(startFrom.getTime() + extraDays * 86400000);
+    unit.expiryDate = next.toISOString().slice(0, 10);
+    unit.warrantyDays = getDaysRemaining(unit.expiryDate);
+  }
+
+  savePrivateCustomersAndSyncPublicCache(list);
+  await syncSingleCustomerToDualFirestoreCollections(unit);
+  await appendCloudAudit('WARRANTY_MODIFIED', `Updated warranty for ${unit.customerName} (${unit.modelName}) -> expires ${unit.expiryDate}`, 'INFO');
+  render();
+  showToast(extraDays === 0 ? `Marked ${unit.customerName}'s warranty as Expired (stays visible on public list)` : `Extended ${unit.customerName}'s warranty by +${extraDays} days`);
+}
+
+async function deleteUnit(customerId) {
+  const list = [...loadPrivateCustomersList()];
+  const found = list.find(u => u.id === customerId);
+  const nextList = list.filter(u => u.id !== customerId);
+  savePrivateCustomersAndSyncPublicCache(nextList);
+  await deleteCustomerFromDualFirestoreCollections(customerId);
+  await appendCloudAudit('WARRANTY_MODIFIED', `Deleted customer record ${found ? found.customerName : customerId}`, 'WARNING');
+  render();
+  showToast('Customer record deleted from public_units & private_customers');
 }
 
 /* Service Tickets Control */
@@ -1050,26 +1304,26 @@ function setTicketFilter(f) {
 }
 
 function updateTicketStatus(ticketId, nextStatus) {
-  const cs = loadCustomerState();
+  const cs = loadCustomerTicketsState();
   const t = cs.tickets.find(x => x.id === ticketId);
   if (!t) return;
   t.status = nextStatus;
-  saveCustomerState(cs);
+  saveCustomerTicketsState(cs);
   appendCloudAudit('TICKET_UPDATED', `Ticket ${ticketId} status changed to ${nextStatus}`, 'INFO');
   render();
   showToast(`Ticket ${ticketId} marked ${nextStatus}`);
 }
 
 function deleteTicket(ticketId) {
-  const cs = loadCustomerState();
+  const cs = loadCustomerTicketsState();
   cs.tickets = cs.tickets.filter(x => x.id !== ticketId);
-  saveCustomerState(cs);
+  saveCustomerTicketsState(cs);
   appendCloudAudit('TICKET_UPDATED', `Deleted service ticket ${ticketId}`, 'WARNING');
   render();
   showToast(`Ticket ${ticketId} deleted`);
 }
 
-/* Invoices & Billing Control */
+/* Invoices & Google Drive Billing Control */
 function saveInvoiceDefaults(e) {
   e.preventDefault();
   const cfg = loadAdminConfig();
@@ -1085,33 +1339,41 @@ function saveInvoiceDefaults(e) {
     googleSheetWebhook: (document.getElementById('invDefSheetUrl')?.value || '').trim().slice(0, 500)
   };
   if (cfg.invoiceDefaults.googleSheetWebhook && !isValidHttpsUrl(cfg.invoiceDefaults.googleSheetWebhook)) {
-    return showToast('Google Sheet Webhook URL must start with https://');
+    return showToast('Google Drive Apps Script Webhook URL must start with https://');
   }
   saveAdminConfig(cfg);
-  appendCloudAudit('CONFIG_UPDATED', `Updated Invoice Studio defaults (GST ${cfg.invoiceDefaults.gstPercent}%, Theme ${cfg.invoiceDefaults.palette})`, 'INFO');
+  appendCloudAudit('CONFIG_UPDATED', `Updated Invoice Studio & Google Drive Webhook defaults (GST ${cfg.invoiceDefaults.gstPercent}%)`, 'INFO');
   render();
-  showToast('Invoice Studio defaults synced');
+  showToast('Invoice Studio & Google Drive Webhook defaults saved');
 }
 
-function updateSavedInvoiceStatus(invId, status) {
-  const cs = loadCustomerState();
-  const inv = (cs.invoices || []).find(x => x.id === invId);
+async function updateSavedInvoiceStatus(invId, status) {
+  const list = [...loadPrivateInvoicesList()];
+  const inv = list.find(x => x.id === invId);
   if (!inv) return;
   inv.status = status;
-  saveCustomerState(cs);
+  session.privateInvoices = list;
+  try { localStorage.setItem(PRIVATE_INVOICES_CACHE_KEY, JSON.stringify(list)); } catch {}
+  if (db && fbSdk && session.authenticated) {
+    try {
+      await fbSdk.setDoc(fbSdk.doc(db, 'private_invoices', sanitizeId(invId)), {
+        status,
+        updatedAt: fbSdk.serverTimestamp()
+      }, { merge: true });
+    } catch {}
+  }
   appendCloudAudit('CONFIG_UPDATED', `Invoice ${inv.invoiceNo} marked ${status}`, 'INFO');
   render();
   showToast(`Invoice ${inv.invoiceNo} updated to ${status}`);
 }
 
 function exportMasterInvoicesCsv() {
-  const cs = loadCustomerState();
-  const list = cs.invoices || [];
-  if (!list.length) return showToast('No saved customer invoices yet');
+  const list = loadPrivateInvoicesList();
+  if (!list.length) return showToast('No saved bills in private_invoices yet');
   const cell = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const headers = ['Invoice No', 'Date', 'Due Date', 'Status', 'Customer', 'Phone', 'Email', 'Tax %', 'Discount %', 'Payment'];
+  const headers = ['Invoice No', 'Date', 'Due Date', 'Status', 'Customer Name', 'Mobile Number', 'Place / Address', 'Model(s)', 'Qty', 'Unit Price', 'Discount %', 'GST %', 'Grand Total', 'Google Drive Saved'];
   const rows = list.map(i => [
-    i.invoiceNo, i.invoiceDate, i.dueDate, i.status, i.clientName, i.clientPhone, i.clientEmail, i.taxPct, i.discountPct, i.paymentMethod
+    i.invoiceNo, i.invoiceDate, i.dueDate, i.status, i.customerName || i.clientName, i.mobileNumber || i.clientPhone, i.address || i.clientAddress, i.modelName || '', i.quantity || 1, i.unitPrice || 0, i.discountPct || 0, i.taxPct || 18, i.grandTotal || 0, i.driveSaved ? 'YES' : 'Firestore'
   ].map(cell).join(','));
   const csv = '\uFEFF' + [headers.map(cell).join(','), ...rows].join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1121,10 +1383,10 @@ function exportMasterInvoicesCsv() {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  showToast(`Exported ${list.length} invoice(s) to Google Sheets CSV`);
+  showToast(`Exported ${list.length} bill(s) to Google Sheets CSV`);
 }
 
-/* New Tab Apps Hub Control */
+/* Apps Hub Control */
 function addHubApp(e) {
   e.preventDefault();
   const name = sanitizeText(document.getElementById('hubName')?.value || '', 100);
@@ -1147,7 +1409,7 @@ function addHubApp(e) {
   saveAdminConfig(cfg);
   appendCloudAudit('HUB_UPDATED', `Published Hub App "${name}" (${category})`, 'INFO');
   render();
-  showToast(`Added "${name}" to Customer Apps Hub`);
+  showToast(`Added "${name}" to Public Apps Hub`);
 }
 
 function toggleHubApp(appId) {
@@ -1171,51 +1433,12 @@ async function deleteHubApp(appId) {
   }
   appendCloudAudit('HUB_UPDATED', `Deleted Hub App "${found ? found.name : appId}"`, 'WARNING');
   render();
-  showToast('App removed from New Tab Hub');
-}
-
-/* Customer Profile, Sync & Notes Control */
-function saveCustomerControl(e) {
-  e.preventDefault();
-  const cs = loadCustomerState();
-  cs.customer = {
-    name: sanitizeText(document.getElementById('custName')?.value || '', 100) || 'Customer',
-    accountId: sanitizeText(document.getElementById('custCode')?.value || '', 40) || 'AQV-2026-8419',
-    email: sanitizeText(document.getElementById('custEmail')?.value || '', 150),
-    city: sanitizeText(document.getElementById('custCity')?.value || '', 120)
-  };
-  saveCustomerState(cs);
-  appendCloudAudit('CONFIG_UPDATED', `Updated customer profile for ${cs.customer.name} (${cs.customer.accountId})`, 'INFO');
-  render();
-  showToast('Customer profile updated');
-}
-
-function toggleCustomerPolicy(field) {
-  const cs = loadCustomerState();
-  if (field === 'gmailSync' || field === 'driveAutoSave') {
-    cs.sync[field] = !cs.sync[field];
-  } else if (field === 'dpdp') {
-    cs.dpdp.consentGranted = !cs.dpdp.consentGranted;
-  }
-  saveCustomerState(cs);
-  appendCloudAudit('CONFIG_UPDATED', `Toggled customer policy "${field}"`, 'INFO');
-  render();
-  showToast('Customer sync / privacy policy updated');
+  showToast('App removed from Ecosystem Hub');
 }
 
 /* =========================================================================
    AUTH VIEWPORT (CLEAN ADMIN LOGIN + MATH QUIZ + FIREBASE FORGOT PASSWORD)
    ========================================================================= */
-function renderNonBlockingFirebaseBanner() {
-  if (session.firebaseConfigLoaded || isFirebaseConfigured()) return '';
-  return `
-    <div style="width:100%;max-width:470px;margin:0 auto 12px;padding:10px 14px;border-radius:14px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);display:flex;align-items:center;gap:10px;font-size:12px;color:var(--ink);">
-      <span style="color:var(--amber);flex-shrink:0;">${ic('alert')}</span>
-      <span><strong>Firebase Standby Mode:</strong> Paste your Firebase Web App config into <code>firebase-config.js</code> to activate live cloud authentication.</span>
-    </div>
-  `;
-}
-
 function renderMathQuizBlock() {
   const q = session.mathQuiz;
   return `
@@ -1236,7 +1459,6 @@ function renderMathQuizBlock() {
 
 function renderAuthViewport() {
   const isDark = getTheme() === 'dark';
-
   let bodyHtml = '';
 
   if (session.checkingAuth) {
@@ -1246,7 +1468,7 @@ function renderAuthViewport() {
           <span class="shield-chip">${ic('shield')} Verifying Firebase Session</span>
         </div>
         <h1 class="auth-title serif" style="font-size:28px;">Connecting to Firebase</h1>
-        <p class="auth-sub" style="margin-bottom:0;">Checking server-side Admin privileges...</p>
+        <p class="auth-sub" style="margin-bottom:0;">Checking server-side Admin UID privileges...</p>
       </div>
     `;
   } else if (session.authView === 'forgot') {
@@ -1277,7 +1499,7 @@ function renderAuthViewport() {
     bodyHtml = `
       <div class="security-shield-row">
         <span class="shield-chip">${ic('shield')} Firebase Auth Gate</span>
-        <span class="shield-chip emerald">30m Auto-Logout Guard</span>
+        <span class="shield-chip emerald">UID: ${AUTHORIZED_ADMIN_UID.slice(0, 8)}...</span>
       </div>
       <h1 class="auth-title serif">Admin Login</h1>
       <p class="auth-sub">Sign in with your authorized Firebase Admin email and password. Non-admin accounts are automatically rejected by server-side Firestore Security Rules.</p>
@@ -1298,7 +1520,7 @@ function renderAuthViewport() {
         </button>
       </form>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap;">
-        <span style="font-size:11.5px;color:var(--ink-tertiary);">Need to recover access?</span>
+        <a href="../index.html" style="font-size:11.5px;color:var(--ink-secondary);text-decoration:none;font-weight:700;">&larr; Public Landing Page</a>
         <button type="button" class="btn btn-sm btn-soft" onclick="openForgotPasswordView()">
           ${ic('key')} Forgot Password
         </button>
@@ -1320,7 +1542,6 @@ function renderAuthViewport() {
           ${isDark ? ic('sun') : ic('moon')} ${isDark ? 'Day' : 'Night'}
         </button>
       </div>
-      ${renderNonBlockingFirebaseBanner()}
       <div class="auth-card">${bodyHtml}</div>
       <div style="margin-top:14px;font-size:11px;color:var(--ink-tertiary);text-align:center;max-width:460px;">
         Authenticated via Firebase Authentication &bull; 30-Minute Inactivity Auto-Logout &bull; Enforced Server-Side by Firestore Rules.
@@ -1332,39 +1553,48 @@ function renderAuthViewport() {
 /* =========================================================================
    AUTHENTICATED ADMIN COMMAND CENTER PANELS
    ========================================================================= */
-function renderDashboardPanel(cfg, cs, logs) {
+function renderDashboardPanel(cfg, customers, invoices, ticketsState, logs) {
   const enabledCount = Object.values(cfg.features).filter(Boolean).length;
-  const activeUnits = cs.units.filter(u => getDaysRemaining(u.expiryDate) > 0).length;
-  const openTickets = cs.tickets.filter(t => t.status !== 'Resolved').length;
-  const savedInvCount = (cs.invoices || []).length;
+  const activeUnits = customers.filter(u => getDaysRemaining(u.expiryDate) > 0).length;
+  const openTickets = (ticketsState.tickets || []).filter(t => t.status !== 'Resolved').length;
 
   return `
-    <div class="page-head">
-      <div class="eyebrow">Executive Command Center</div>
-      <h1 class="page-title serif">AquaVault Master Control</h1>
-      <p class="page-desc">Real-time control over every Customer App module, warranty timeline, service ticket, invoice studio, apps hub, and Firebase security policy.</p>
+    <div class="page-head" style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;">
+      <div>
+        <div class="eyebrow">Executive Command Center</div>
+        <h1 class="page-title serif">AquaVault Master Control</h1>
+        <p class="page-desc">Manage public customer warranty countdowns, private customer phone/address records, manual GST bills with automatic Google Drive backup, and the Ecosystem Apps Hub.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a href="../invoice.html" class="btn btn-primary" style="text-decoration:none;">
+          ${ic('receipt')} Open Manual Bill Generator
+        </a>
+        <a href="../index.html" target="_blank" class="btn btn-outline" style="text-decoration:none;">
+          View Public Landing Page
+        </a>
+      </div>
     </div>
 
     <div class="kpi-grid">
       <div class="kpi-card">
-        <div class="kpi-label">Active Modules</div>
-        <div class="kpi-value mono">${enabledCount}/8</div>
-        <div class="kpi-foot">${cfg.maintenanceMode ? '<span style="color:var(--rose);font-weight:700;">Maintenance ON</span>' : '<span style="color:var(--emerald);font-weight:700;">Customer App Live</span>'}</div>
+        <div class="kpi-label">Registered Customers</div>
+        <div class="kpi-value mono">${customers.length}</div>
+        <div class="kpi-foot"><span style="color:var(--emerald);font-weight:700;">${activeUnits} Active</span> &bull; ${customers.length - activeUnits} Expired</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Protected Units</div>
-        <div class="kpi-value mono">${activeUnits}/${cs.units.length}</div>
-        <div class="kpi-foot">Controllers &amp; Stoppers</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Open Tickets</div>
-        <div class="kpi-value mono">${openTickets}</div>
-        <div class="kpi-foot">${cs.tickets.length} total requests</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Saved Invoices</div>
-        <div class="kpi-value mono">${savedInvCount}</div>
+        <div class="kpi-label">Private Bills &amp; Drive</div>
+        <div class="kpi-value mono">${invoices.length}</div>
         <div class="kpi-foot">GST Default: ${cfg.invoiceDefaults.gstPercent}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Active Modules</div>
+        <div class="kpi-value mono">${enabledCount}/6</div>
+        <div class="kpi-foot">${cfg.maintenanceMode ? '<span style="color:var(--rose);font-weight:700;">Maintenance ON</span>' : '<span style="color:var(--emerald);font-weight:700;">Public Page Live</span>'}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Open Service Tickets</div>
+        <div class="kpi-value mono">${openTickets}</div>
+        <div class="kpi-foot">${(ticketsState.tickets || []).length} total requests</div>
       </div>
     </div>
 
@@ -1373,21 +1603,21 @@ function renderDashboardPanel(cfg, cs, logs) {
         <div class="card-head">
           <div>
             <h2 class="card-title">Instant Emergency Switches</h2>
-            <p class="card-sub">Synced with Firestore &amp; Customer App</p>
+            <p class="card-sub">Synced with Firestore &amp; Public Landing Page</p>
           </div>
           <span class="badge ${cfg.maintenanceMode ? 'badge-rose' : 'badge-emerald'}">${cfg.maintenanceMode ? 'Paused' : 'Operational'}</span>
         </div>
         <div class="toggle-row">
           <div class="toggle-meta">
-            <div class="toggle-name">Customer App Maintenance Mode</div>
-            <div class="toggle-desc">Shows luxury maintenance notice on all customer pages</div>
+            <div class="toggle-name">Public Page Maintenance Mode</div>
+            <div class="toggle-desc">Shows luxury maintenance notice on public pages</div>
           </div>
           <button class="switch danger ${cfg.maintenanceMode ? 'on' : ''}" onclick="toggleMaintenanceMode()" aria-label="Toggle Maintenance Mode"></button>
         </div>
         <div class="toggle-row">
           <div class="toggle-meta">
-            <div class="toggle-name">Top Customer Broadcast Banner</div>
-            <div class="toggle-desc">Display urgent offers or monsoon alerts at the top of Customer App</div>
+            <div class="toggle-name">Top Broadcast Banner</div>
+            <div class="toggle-desc">Display urgent offers or monsoon alerts at the top of index.html</div>
           </div>
           <button class="switch ${cfg.announcementActive ? 'on' : ''}" onclick="toggleAnnouncementActive()" aria-label="Toggle Broadcast Banner"></button>
         </div>
@@ -1423,14 +1653,13 @@ function renderDashboardPanel(cfg, cs, logs) {
 }
 
 function renderFeaturesPanel(cfg) {
+  // Clean feature switches — removed deleted Calculator, Notepad, and separate Warranty page switches
   const featureRows = [
-    ['warranty', 'Warranty Countdown & Interactive Gauge', 'Controls visibility of warranty.html and live remaining-day ring'],
-    ['devices', 'Devices, Digital Bills & Service Requests', 'Controls visibility of devices.html, bills, and service booking'],
-    ['calculator', 'Hisab-Kitab Calculator (Basic / GST / Split / Margin)', 'Controls visibility of calculator.html financial utility'],
-    ['invoice', 'Colorful Invoice Generator (PDF, PNG & Google Sheets)', 'Controls visibility of invoice.html and Home/Devices invoice banners'],
-    ['notes', 'Personal Notepad with Gmail & Drive Auto-Sync', 'Controls visibility of notes.html personal maintenance notebook'],
-    ['hub', 'New Tab (Apps Hub)', 'Controls visibility of hub.html external apps & tools directory'],
-    ['privacy', 'DPDP Privacy & Data Controls', 'Controls visibility of privacy.html consent & export controls'],
+    ['warranty', 'Public Customer Warranty Directory & Countdown Ring', 'Controls live warranty countdown directory on index.html'],
+    ['hub', 'AquaVault Ecosystem / Apps Hub (SellGst-Pro & Tools)', 'Controls visibility of hub.html and embedded Apps Hub on index.html'],
+    ['devices', 'Hardware Models & Technician Service Booking', 'Controls visibility of devices.html and service request form'],
+    ['invoice', 'Admin-Only Manual Bill Generator & Google Drive Sync', 'Controls invoice.html Admin billing studio'],
+    ['privacy', 'DPDP Privacy & Public/Private Isolation Notice', 'Controls visibility of privacy.html'],
     ['pwaPopup', '7-Second Auto-Hiding PWA Install Popup', 'Controls the top mobile install prompt popup']
   ];
 
@@ -1438,15 +1667,15 @@ function renderFeaturesPanel(cfg) {
     <div class="page-head">
       <div class="eyebrow">Master Feature Matrix</div>
       <h1 class="page-title serif">Feature Switches &amp; Branding</h1>
-      <p class="page-desc">Enable or disable any Customer App page or module with 1 click, configure maintenance messages, and broadcast announcements.</p>
+      <p class="page-desc">Enable or disable active AquaVault modules, configure maintenance messages, and broadcast announcements.</p>
     </div>
 
     <div class="grid-2">
       <div class="card">
         <div class="card-head">
           <div>
-            <h2 class="card-title">Customer App Module Kill-Switches</h2>
-            <p class="card-sub">Disabled modules are cleanly hidden from customer navigation</p>
+            <h2 class="card-title">Active Module Switches</h2>
+            <p class="card-sub">Deleted pages (Calculator, Notepad, separate Warranty page) have been permanently removed</p>
           </div>
         </div>
         ${featureRows.map(([k, title, desc]) => `
@@ -1469,7 +1698,7 @@ function renderFeaturesPanel(cfg) {
         </div>
         <form onsubmit="saveBroadcastAndBranding(event)">
           <div class="field">
-            <label>Customer Broadcast Announcement Text</label>
+            <label>Public Broadcast Announcement Text</label>
             <textarea id="cfgAnnouncementText" class="textarea" maxlength="300">${esc(cfg.announcementText)}</textarea>
           </div>
           <div class="field">
@@ -1477,9 +1706,9 @@ function renderFeaturesPanel(cfg) {
             <textarea id="cfgMaintenanceMsg" class="textarea" maxlength="300">${esc(cfg.maintenanceMessage)}</textarea>
           </div>
           <div class="field">
-            <label>Default Customer Theme</label>
+            <label>Default Public Theme</label>
             <select id="cfgDefaultTheme" class="select">
-              <option value="light" ${cfg.defaultTheme === 'light' ? 'selected' : ''}>Day Mode (Porcelain White + Imperial Purple)</option>
+              <option value="light" ${cfg.defaultTheme === 'light' ? 'selected' : ''}>Day Mode (Porcelain White + Royal Purple)</option>
               <option value="dark" ${cfg.defaultTheme === 'dark' ? 'selected' : ''}>Night Mode (Obsidian Black + Luminous Violet)</option>
             </select>
           </div>
@@ -1490,104 +1719,152 @@ function renderFeaturesPanel(cfg) {
   `;
 }
 
-function renderDevicesPanel(cs) {
+function renderDevicesPanel(customers) {
+  const editing = session.editingCustomerId
+    ? customers.find(c => c.id === session.editingCustomerId)
+    : null;
+
   return `
     <div class="page-head">
-      <div class="eyebrow">Hardware &amp; Warranty Fleet</div>
-      <h1 class="page-title serif">Units &amp; Warranty Control</h1>
-      <p class="page-desc">Add Water Level Controllers or Water Stoppers, extend customer warranty timelines (+90d / +180d / +365d), or remove units.</p>
+      <div class="eyebrow">Dual-Vault Customer &amp; Warranty Control</div>
+      <h1 class="page-title serif">Units &amp; Customer Warranty Control</h1>
+      <p class="page-desc">
+        Add or edit customers manually. <strong>Customer Name, Model, Quantity &amp; Warranty Countdown</strong> sync automatically to <code>public_units</code> (shown on <code>index.html</code>), while <strong>Mobile Number &amp; Place/Address</strong> are locked strictly inside <code>private_customers</code> (Admin-only).
+      </p>
     </div>
 
     <div class="card">
       <div class="card-head">
         <div>
-          <h2 class="card-title">Register New Hardware Unit</h2>
-          <p class="card-sub">Immediately appears in Customer Warranty &amp; Devices Vault</p>
+          <h2 class="card-title">${editing ? `Edit Customer: ${esc(editing.customerName)}` : 'Register New Customer & Hardware Unit'}</h2>
+          <p class="card-sub">Automatically splits public display fields from private contact details</p>
         </div>
+        ${editing ? `<button type="button" class="btn btn-sm btn-outline" onclick="cancelEditCustomerRecord()">Cancel Edit</button>` : ''}
       </div>
-      <form onsubmit="addHardwareUnit(event)">
+      <form onsubmit="saveCustomerWarrantyRecord(event)">
         <div class="grid-2">
           <div class="field">
-            <label>Product Model Name</label>
-            <input id="newUnitModel" class="input" maxlength="120" placeholder="e.g. AquaVault Titan-X9 Controller" required />
+            <label>Customer Full Name (Public + Private)</label>
+            <input id="newCustName" class="input" maxlength="120" value="${esc(editing ? editing.customerName : '')}" placeholder="e.g. Rajesh Verma" required />
           </div>
           <div class="field">
-            <label>Hardware Category</label>
+            <label>Customer Mobile Number ( strictly Private — Admin Only )</label>
+            <input id="newCustMobile" class="input mono" maxlength="30" value="${esc(editing ? editing.mobileNumber : '')}" placeholder="e.g. +91 98450 11223" required />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Customer Location / Place / Address ( strictly Private — Admin Only )</label>
+          <input id="newCustAddress" class="input" maxlength="250" value="${esc(editing ? editing.address : '')}" placeholder="e.g. 42 Park View Residency, Indiranagar, Bengaluru" required />
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label>Product Model Name (Public + Private)</label>
+            <input id="newUnitModel" class="input" maxlength="140" value="${esc(editing ? editing.modelName : '')}" placeholder="e.g. AquaVault Pro-X7 Dual Tank Controller" required />
+          </div>
+          <div class="field">
+            <label>Hardware Type (Public + Private)</label>
             <select id="newUnitType" class="select">
-              <option value="controller">Water Level Controller</option>
-              <option value="stopper">Water Stopper Valve</option>
+              <option value="Water Level Controller" ${editing && editing.hardwareType === 'Water Level Controller' ? 'selected' : ''}>Water Level Controller</option>
+              <option value="Water Stopper" ${editing && editing.hardwareType === 'Water Stopper' ? 'selected' : ''}>Water Stopper</option>
             </select>
           </div>
         </div>
+
         <div class="grid-2">
           <div class="field">
-            <label>Serial Number</label>
-            <input id="newUnitSerial" class="input mono" maxlength="80" placeholder="AV-WLC-99201" required />
+            <label>Quantity Installed (Public + Private)</label>
+            <input id="newUnitQty" class="input mono" type="number" min="1" max="1000" value="${editing ? (editing.quantity || 1) : 1}" required />
           </div>
           <div class="field">
-            <label>Installation Location Tag</label>
-            <input id="newUnitLocation" class="input" maxlength="80" placeholder="e.g. Rooftop Overhead Tank" required />
+            <label>Installation Date (Public + Private)</label>
+            <input id="newUnitInstallDate" class="input mono" type="date" value="${esc(editing ? editing.installDate : shiftDaysIso(0))}" required />
           </div>
         </div>
+
         <div class="grid-2">
           <div class="field">
-            <label>Warranty Coverage (Days)</label>
-            <input id="newUnitDays" class="input mono" type="number" value="365" min="30" max="3650" required />
+            <label>Warranty Coverage (Days — Set 0 for Expired)</label>
+            <input id="newUnitDays" class="input mono" type="number" value="${editing ? editing.warrantyDays : 365}" min="0" max="3650" required />
           </div>
           <div class="field">
-            <label>Base Price (INR)</label>
-            <input id="newUnitPrice" class="input mono" type="number" value="7950" min="0" max="10000000" required />
+            <label>Unit Price (INR — Private Only)</label>
+            <input id="newUnitPrice" class="input mono" type="number" value="${editing ? editing.basePrice : 8450}" min="0" max="100000000" required />
           </div>
         </div>
-        <button type="submit" class="btn btn-primary">${ic('plus')} Add Device &amp; Activate Warranty</button>
+
+        <div class="field">
+          <label>Hardware Serial Number (Private Only)</label>
+          <input id="newUnitSerial" class="input mono" maxlength="80" value="${esc(editing ? editing.serialNumber : '')}" placeholder="Auto-generated if left blank (e.g. AV-WLC-88412)" />
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+          ${ic('check')} ${editing ? 'Update Customer & Sync Public/Private Vaults' : 'Add Customer & Activate Live Public Warranty'}
+        </button>
       </form>
     </div>
 
     <div class="card">
       <div class="card-head">
-        <h2 class="card-title">Registered Customer Units (${cs.units.length})</h2>
+        <div>
+          <h2 class="card-title">Registered Customers (${customers.length})</h2>
+          <p class="card-sub">Expired units stay visible on the public landing page with a red "Expired" badge until you delete or renew them</p>
+        </div>
+        <a href="../invoice.html" class="btn btn-sm btn-primary" style="text-decoration:none;">
+          ${ic('receipt')} Generate Bill for Customer
+        </a>
       </div>
-      ${cs.units.map(u => {
+      ${customers.map(u => {
         const rem = getDaysRemaining(u.expiryDate);
         const badge = rem === 0 ? 'badge-rose' : rem <= 45 ? 'badge-amber' : 'badge-emerald';
-        const label = rem === 0 ? 'Expired' : `${rem}d Left`;
+        const label = rem === 0 ? 'Expired (0d)' : `${rem} Days Left`;
         const safeId = sanitizeId(u.id);
         return `
           <div class="item-row">
             <div class="item-top">
               <div>
-                <div style="font-size:14px;font-weight:800;">${esc(u.model)}</div>
-                <div class="mono" style="font-size:11.5px;color:var(--ink-secondary);margin-top:2px;">
-                  ${esc(u.serial)} &middot; ${esc(u.location)} &middot; ${formatINR(u.basePrice)} + ${u.gstRate}% GST
+                <div style="font-size:15px;font-weight:800;">
+                  ${esc(u.customerName)}
+                  <span class="badge badge-purple" style="margin-left:6px;">${esc(u.hardwareType)}</span>
+                  <span class="badge badge-amber mono" style="margin-left:4px;">Qty: ${Number(u.quantity) || 1}</span>
                 </div>
-                <div style="font-size:11.5px;color:var(--ink-tertiary);margin-top:2px;">
+                <div style="font-size:13px;font-weight:700;color:var(--ink-secondary);margin-top:3px;">
+                  ${esc(u.modelName)} &middot; <span class="mono">${formatINR(u.basePrice)}</span>
+                </div>
+                <div class="mono" style="font-size:11.5px;color:var(--primary);margin-top:3px;">
+                  [PRIVATE] Mobile: ${esc(u.mobileNumber)} &middot; Place: ${esc(u.address)} &middot; Serial: ${esc(u.serialNumber)}
+                </div>
+                <div style="font-size:11.5px;color:var(--ink-tertiary);margin-top:3px;">
                   Installed: <span class="mono">${esc(u.installDate)}</span> &middot; Expires: <span class="mono">${esc(u.expiryDate)}</span>
                 </div>
               </div>
               <span class="badge ${badge}">${label}</span>
             </div>
             <div class="item-actions">
+              <button class="btn btn-sm btn-soft" onclick="editCustomerRecord('${safeId}')">Edit Details</button>
               <button class="btn btn-sm btn-emerald" onclick="extendUnitWarranty('${safeId}', 90)">+90d Warranty</button>
               <button class="btn btn-sm btn-soft" onclick="extendUnitWarranty('${safeId}', 180)">+180d</button>
               <button class="btn btn-sm btn-soft" onclick="extendUnitWarranty('${safeId}', 365)">+1 Year</button>
-              <button class="btn btn-sm btn-danger" onclick="deleteUnit('${safeId}')">${ic('trash')} Remove</button>
+              <button class="btn btn-sm btn-outline" onclick="extendUnitWarranty('${safeId}', 0)">Mark Expired</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteUnit('${safeId}')">${ic('trash')} Delete</button>
             </div>
           </div>
         `;
-      }).join('') || '<div style="font-size:13px;color:var(--ink-tertiary);">No devices registered.</div>'}
+      }).join('') || '<div style="font-size:13px;color:var(--ink-tertiary);">No customer records registered yet.</div>'}
     </div>
   `;
 }
 
 function renderTicketsPanel(cs) {
   const filters = ['All', 'Logged', 'Scheduled', 'Resolved'];
-  const list = cs.tickets.filter(t => session.ticketFilter === 'All' || t.status === session.ticketFilter);
+  const list = (cs.tickets || []).filter(t => session.ticketFilter === 'All' || t.status === session.ticketFilter);
 
   return `
     <div class="page-head">
       <div class="eyebrow">Service Operations</div>
       <h1 class="page-title serif">Service Tickets Control</h1>
-      <p class="page-desc">Review customer inspection &amp; repair tickets, schedule technician visits, or mark tickets resolved (with admin override).</p>
+      <p class="page-desc">Review customer inspection &amp; repair tickets, schedule technician visits, or mark tickets resolved.</p>
     </div>
 
     <div class="card">
@@ -1624,21 +1901,30 @@ function renderTicketsPanel(cs) {
   `;
 }
 
-function renderInvoicesPanel(cfg, cs) {
+function renderInvoicesPanel(cfg, savedInvoices) {
   const d = cfg.invoiceDefaults;
-  const saved = cs.invoices || [];
   return `
-    <div class="page-head">
-      <div class="eyebrow">Billing &amp; Revenue Studio</div>
-      <h1 class="page-title serif">Invoice Studio Control</h1>
-      <p class="page-desc">Configure default company letterhead, GST rate, color theme, and Google Sheets Webhook for Customer Invoice Generator, and manage all saved invoices.</p>
+    <div class="page-head" style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;">
+      <div>
+        <div class="eyebrow">Admin-Only Billing &amp; Google Drive Vault</div>
+        <h1 class="page-title serif">Invoice Studio &amp; Google Drive Sync</h1>
+        <p class="page-desc">Configure default company letterhead, GST rate, color theme, and your Google Apps Script Web App URL (<code>Code.gs</code>) for automatic permanent Google Drive bill archiving.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a href="../invoice.html" class="btn btn-primary" style="text-decoration:none;">
+          ${ic('receipt')} Open Manual Bill Generator
+        </a>
+        <button type="button" class="btn btn-soft" onclick="copyGoogleDriveAppsScript()">
+          ${ic('check')} Copy Code.gs (Drive Saver)
+        </button>
+      </div>
     </div>
 
     <div class="card">
       <div class="card-head">
         <div>
-          <h2 class="card-title">Global Invoice Studio Defaults</h2>
-          <p class="card-sub">Automatically pre-fills new colorful invoices</p>
+          <h2 class="card-title">Global Invoice Studio &amp; Google Drive Webhook Defaults</h2>
+          <p class="card-sub">Automatically pre-fills new bills and pushes every saved bill to your Google Drive folder <code>AquaVault_Permanent_Bills</code></p>
         </div>
       </div>
       <form onsubmit="saveInvoiceDefaults(event)">
@@ -1686,31 +1972,42 @@ function renderInvoicesPanel(cfg, cs) {
           </div>
         </div>
         <div class="field">
-          <label>Default Google Sheets Apps Script Webhook (Optional HTTPS)</label>
+          <label>Google Apps Script Web App URL (<code>Code.gs</code> /exec URL for Automatic Google Drive Save)</label>
           <input id="invDefSheetUrl" class="input mono" type="url" maxlength="500" value="${esc(d.googleSheetWebhook || '')}" placeholder="https://script.google.com/macros/s/.../exec" />
         </div>
-        <button type="submit" class="btn btn-primary">${ic('check')} Save Invoice Studio Defaults</button>
+        <button type="submit" class="btn btn-primary">${ic('check')} Save Invoice &amp; Google Drive Defaults</button>
       </form>
     </div>
 
     <div class="card">
       <div class="card-head">
         <div>
-          <h2 class="card-title">Customer Saved Invoices (${saved.length})</h2>
-          <p class="card-sub">Update payment status or download master Google Sheets CSV</p>
+          <h2 class="card-title">Private Generated Bills Vault (${savedInvoices.length})</h2>
+          <p class="card-sub">Stored in <code>private_invoices</code> (Admin-UID only) &amp; archived in Google Drive</p>
         </div>
         <button class="btn btn-sm btn-emerald" onclick="exportMasterInvoicesCsv()">${ic('download')} Export Master CSV</button>
       </div>
-      ${saved.map(inv => {
+      ${savedInvoices.map(inv => {
         const safeId = sanitizeId(inv.id);
         return `
         <div class="item-row">
           <div class="item-top">
             <div>
               <div class="mono" style="font-size:13.5px;font-weight:800;color:var(--primary);">${esc(inv.invoiceNo)}</div>
-              <div style="font-size:12.5px;font-weight:700;margin-top:2px;">${esc(inv.clientName)} &middot; <span class="mono">${esc(inv.invoiceDate)}</span></div>
+              <div style="font-size:13px;font-weight:700;margin-top:2px;">
+                ${esc(inv.customerName || inv.clientName)} &middot; <span class="mono">${formatINR(inv.grandTotal || 0)}</span>
+              </div>
+              <div class="mono" style="font-size:11.5px;color:var(--ink-secondary);margin-top:2px;">
+                Mobile: ${esc(inv.mobileNumber || inv.clientPhone || '—')} &middot; Place: ${esc(inv.address || inv.clientAddress || '—')}
+              </div>
+              <div style="font-size:11.5px;color:var(--ink-tertiary);margin-top:2px;">
+                Model: ${esc(inv.modelName || 'AquaVault Controller')} (Qty: ${inv.quantity || 1}) &middot; Date: <span class="mono">${esc(inv.invoiceDate)}</span>
+              </div>
             </div>
-            <span class="badge ${inv.status === 'PAID' ? 'badge-emerald' : inv.status === 'OVERDUE' ? 'badge-rose' : 'badge-amber'}">${esc(inv.status)}</span>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+              <span class="badge ${inv.status === 'PAID' ? 'badge-emerald' : inv.status === 'OVERDUE' ? 'badge-rose' : 'badge-amber'}">${esc(inv.status)}</span>
+              <span class="badge badge-purple" style="font-size:10px;">${inv.driveSaved ? 'Google Drive Saved' : 'Firestore Vault'}</span>
+            </div>
           </div>
           <div class="item-actions">
             <button class="btn btn-sm btn-emerald" onclick="updateSavedInvoiceStatus('${safeId}', 'PAID')">Mark PAID</button>
@@ -1719,7 +2016,7 @@ function renderInvoicesPanel(cfg, cs) {
           </div>
         </div>
       `;
-      }).join('') || '<div style="font-size:13px;color:var(--ink-tertiary);">No invoices saved in Customer Invoice Vault yet.</div>'}
+      }).join('') || '<div style="font-size:13px;color:var(--ink-tertiary);">No bills generated yet. Click "Open Manual Bill Generator" above to create &amp; archive your first bill.</div>'}
     </div>
   `;
 }
@@ -1728,8 +2025,8 @@ function renderHubPanel(cfg) {
   return `
     <div class="page-head">
       <div class="eyebrow">Ecosystem Directory</div>
-      <h1 class="page-title serif">New Tab Apps Hub Control</h1>
-      <p class="page-desc">Add, hide, or remove external websites, companion apps, and water tools shown inside the Customer New Tab Hub (strict HTTPS-only URL guard).</p>
+      <h1 class="page-title serif">AquaVault Ecosystem &amp; Apps Hub Control</h1>
+      <p class="page-desc">Add, hide, or remove websites, apps (such as SellGst-Pro), and water tools shown directly on <code>index.html</code> and <code>hub.html</code> (strict HTTPS-only URL guard).</p>
     </div>
 
     <div class="card">
@@ -1738,7 +2035,7 @@ function renderHubPanel(cfg) {
         <div class="grid-2">
           <div class="field">
             <label>App / Website Title</label>
-            <input id="hubName" class="input" maxlength="100" placeholder="e.g. AquaVault Dealer Locator" required />
+            <input id="hubName" class="input" maxlength="100" placeholder="e.g. SellGst-Pro Billing Suite" required />
           </div>
           <div class="field">
             <label>Category</label>
@@ -1755,9 +2052,9 @@ function renderHubPanel(cfg) {
         </div>
         <div class="field">
           <label>Short Description</label>
-          <input id="hubDesc" class="input" maxlength="300" placeholder="One-line value summary for customers" required />
+          <input id="hubDesc" class="input" maxlength="300" placeholder="One-line value summary for visitors" required />
         </div>
-        <button type="submit" class="btn btn-primary">${ic('plus')} Publish to Customer Hub</button>
+        <button type="submit" class="btn btn-primary">${ic('plus')} Publish to Landing Page &amp; Apps Hub</button>
       </form>
     </div>
 
@@ -1786,78 +2083,13 @@ function renderHubPanel(cfg) {
   `;
 }
 
-function renderCustomersPanel(cs) {
-  const c = cs.customer || {};
-  return `
-    <div class="page-head">
-      <div class="eyebrow">Customer Governance &amp; DPDP</div>
-      <h1 class="page-title serif">Customer, Notes &amp; DPDP</h1>
-      <p class="page-desc">Manage customer identity metadata, default Gmail/Google Drive Note Sync policies, and DPDP Act compliance status.</p>
-    </div>
-
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-head"><h2 class="card-title">Customer Profile Record</h2></div>
-        <form onsubmit="saveCustomerControl(event)">
-          <div class="field">
-            <label>Customer Full Name</label>
-            <input id="custName" class="input" maxlength="100" value="${esc(c.name)}" required />
-          </div>
-          <div class="field">
-            <label>AquaVault Customer ID</label>
-            <input id="custCode" class="input mono" maxlength="40" value="${esc(c.accountId)}" required />
-          </div>
-          <div class="field">
-            <label>Customer Email</label>
-            <input id="custEmail" class="input" type="email" maxlength="150" value="${esc(c.email)}" />
-          </div>
-          <div class="field">
-            <label>City / Region</label>
-            <input id="custCity" class="input" maxlength="120" value="${esc(c.city)}" />
-          </div>
-          <button type="submit" class="btn btn-primary btn-full">${ic('check')} Update Customer Record</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h2 class="card-title">Cloud Sync &amp; DPDP Compliance</h2></div>
-        <div class="toggle-row">
-          <div class="toggle-meta">
-            <div class="toggle-name">Notepad Gmail Auto-Sync</div>
-            <div class="toggle-desc">Default Gmail backup status for customer notes</div>
-          </div>
-          <button class="switch ${cs.sync?.gmailSync ? 'on' : ''}" onclick="toggleCustomerPolicy('gmailSync')"></button>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-meta">
-            <div class="toggle-name">Google Drive Auto-Save</div>
-            <div class="toggle-desc">Default Drive backup toggle for customer notes</div>
-          </div>
-          <button class="switch ${cs.sync?.driveAutoSave ? 'on' : ''}" onclick="toggleCustomerPolicy('driveAutoSave')"></button>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-meta">
-            <div class="toggle-name">DPDP Act 2023 Consent Active</div>
-            <div class="toggle-desc">Current customer digital privacy consent status</div>
-          </div>
-          <button class="switch ${cs.dpdp?.consentGranted ? 'on' : ''}" onclick="toggleCustomerPolicy('dpdp')"></button>
-        </div>
-        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:12px;color:var(--ink-secondary);">
-          Stored Customer Notes: <strong class="mono">${(cs.notes || []).length}</strong> &middot;
-          DPDP Audit Entries: <strong class="mono">${(cs.dpdp?.auditTrail || []).length}</strong>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 function renderSecurityPanel(logs) {
   const user = session.user || {};
   return `
     <div class="page-head">
       <div class="eyebrow">Server-Side Firebase Security</div>
       <h1 class="page-title serif">Firebase Security &amp; Audit</h1>
-      <p class="page-desc">Admin authentication and permissions are enforced exclusively by Firebase Authentication, a 30-minute inactivity auto-logout timer, and Firestore Security Rules.</p>
+      <p class="page-desc">All Admin write operations and private collections (<code>private_customers</code>, <code>private_invoices</code>) are locked exclusively to Firebase Admin UID <code>${AUTHORIZED_ADMIN_UID}</code>.</p>
     </div>
 
     <div class="grid-2">
@@ -1872,7 +2104,7 @@ function renderSecurityPanel(logs) {
         <div class="item-row">
           <div style="font-size:12px;color:var(--ink-tertiary);">Signed-In Email</div>
           <div class="mono" style="font-size:13.5px;font-weight:700;margin-top:2px;">${esc(user.email || 'Unknown')}</div>
-          <div style="font-size:12px;color:var(--ink-tertiary);margin-top:10px;">Firebase UID</div>
+          <div style="font-size:12px;color:var(--ink-tertiary);margin-top:10px;">Verified Admin Firebase UID</div>
           <div class="mono" style="font-size:12px;color:var(--ink-secondary);margin-top:2px;word-break:break-all;">${esc(user.uid || '')}</div>
           <div style="font-size:12px;color:var(--ink-tertiary);margin-top:10px;">Inactivity Auto-Logout Protection</div>
           <div class="mono" style="font-size:12px;color:var(--primary);margin-top:2px;">Active (${getRemainingSessionMinutes()} min remaining before auto-logout)</div>
@@ -1880,7 +2112,7 @@ function renderSecurityPanel(logs) {
           <div class="mono" style="font-size:12px;color:var(--emerald);margin-top:2px;">${esc(session.cloudSyncedAt || 'Synced')}</div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
-          <button type="button" class="btn btn-primary" onclick="handleManualCloudSync()">${ic('refresh')} Sync Config to Firestore</button>
+          <button type="button" class="btn btn-primary" onclick="handleManualCloudSync()">${ic('refresh')} Sync All Data to Firestore</button>
           <button type="button" class="btn btn-soft" onclick="handleSendResetFromSecurityPanel()">${ic('mail')} Send Password Reset Email</button>
         </div>
       </div>
@@ -1909,17 +2141,19 @@ function renderSecurityPanel(logs) {
     <div class="card">
       <div class="card-head">
         <div>
-          <h2 class="card-title">Strict Server-Side Firestore Rules (UID: ${AUTHORIZED_ADMIN_UID})</h2>
-          <p class="card-sub">Enforced on Google Firebase servers — only UID <code>${AUTHORIZED_ADMIN_UID}</code> can access Admin collections</p>
+          <h2 class="card-title">Strict Anti-Hacker Firestore Rules &amp; Google Drive Script</h2>
+          <p class="card-sub">Copy <code>firestore.rules</code> or <code>Code.gs</code> in 1 click</p>
         </div>
-        <button type="button" class="btn btn-sm btn-emerald" onclick="copyFirestoreRulesToClipboard()">${ic('check')} Copy Firestore Rules</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-sm btn-emerald" onclick="copyFirestoreRulesToClipboard()">${ic('check')} Copy firestore.rules</button>
+          <button type="button" class="btn btn-sm btn-soft" onclick="copyGoogleDriveAppsScript()">${ic('check')} Copy Code.gs (Drive Saver)</button>
+        </div>
       </div>
       <div class="security-shield-row" style="margin-bottom:0;">
         <span class="shield-chip emerald">Admin UID: ${AUTHORIZED_ADMIN_UID}</span>
-        <span class="shield-chip emerald">30-Min Inactivity Logout</span>
-        <span class="shield-chip emerald">Per-User UID Isolation</span>
-        <span class="shield-chip emerald">Root User Listing Blocked</span>
-        <span class="shield-chip emerald">30-Key Payload Cap</span>
+        <span class="shield-chip emerald">public_units: Zero Phone/Bill Leak</span>
+        <span class="shield-chip emerald">private_customers: Admin-Only</span>
+        <span class="shield-chip emerald">private_invoices: Admin-Only + Drive</span>
       </div>
     </div>
 
@@ -1945,7 +2179,9 @@ function renderSecurityPanel(logs) {
    ========================================================================= */
 function renderAdminShell() {
   const cfg = loadAdminConfig();
-  const cs = loadCustomerState();
+  const customers = loadPrivateCustomersList();
+  const invoices = loadPrivateInvoicesList();
+  const ticketsState = loadCustomerTicketsState();
   const logs = session.auditLogs;
   const user = session.user || {};
   const isDark = getTheme() === 'dark';
@@ -1953,13 +2189,12 @@ function renderAdminShell() {
   let contentHtml = '';
   switch (session.activeTab) {
     case 'features': contentHtml = renderFeaturesPanel(cfg); break;
-    case 'devices': contentHtml = renderDevicesPanel(cs); break;
-    case 'tickets': contentHtml = renderTicketsPanel(cs); break;
-    case 'invoices': contentHtml = renderInvoicesPanel(cfg, cs); break;
+    case 'devices': contentHtml = renderDevicesPanel(customers); break;
+    case 'tickets': contentHtml = renderTicketsPanel(ticketsState); break;
+    case 'invoices': contentHtml = renderInvoicesPanel(cfg, invoices); break;
     case 'hub': contentHtml = renderHubPanel(cfg); break;
-    case 'customers': contentHtml = renderCustomersPanel(cs); break;
     case 'security': contentHtml = renderSecurityPanel(logs); break;
-    default: contentHtml = renderDashboardPanel(cfg, cs, logs); break;
+    default: contentHtml = renderDashboardPanel(cfg, customers, invoices, ticketsState, logs); break;
   }
 
   return `
@@ -1978,6 +2213,12 @@ function renderAdminShell() {
               ${ic(t.icon)} <span>${t.label}</span>
             </button>
           `).join('')}
+          <a href="../invoice.html" class="nav-item-btn" style="text-decoration:none;margin-top:4px;color:var(--primary);font-weight:800;">
+            ${ic('receipt')} <span>Manual Bill Studio</span>
+          </a>
+          <a href="../index.html" class="nav-item-btn" style="text-decoration:none;color:var(--ink-secondary);">
+            ${ic('shield')} <span>Public Trust Page</span>
+          </a>
         </nav>
         <div style="padding-top:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;">
           <div style="font-size:11.5px;color:var(--ink-secondary);padding:0 6px;overflow:hidden;text-overflow:ellipsis;">
@@ -1999,6 +2240,9 @@ function renderAdminShell() {
             </div>
           </div>
           <div class="topbar-actions">
+            <a href="../invoice.html" class="btn btn-sm btn-primary" style="text-decoration:none;">
+              ${ic('receipt')} Create Bill
+            </a>
             <span id="idleTimerBadge" class="badge badge-purple mono" style="font-size:10.5px;">Auto-Logout: ${getRemainingSessionMinutes()}m</span>
             <button class="pill-btn" onclick="toggleAdminTheme()">
               ${isDark ? ic('sun') : ic('moon')} ${isDark ? 'Day' : 'Night'}
@@ -2016,6 +2260,9 @@ function renderAdminShell() {
                 ${ic(t.icon)} ${t.label}
               </button>
             `).join('')}
+            <a href="../invoice.html" class="mobile-pill" style="text-decoration:none;color:var(--primary);font-weight:800;">
+              ${ic('receipt')} Bill Generator
+            </a>
           </div>
           ${contentHtml}
         </main>
@@ -2056,9 +2303,19 @@ async function copyFirestoreRulesToClipboard() {
   showToast(`Open firestore.rules — Admin UID ${AUTHORIZED_ADMIN_UID} is active`);
 }
 
-/* =========================================================================
-   EXPOSE GLOBAL HANDLERS FOR INLINE TEMPLATE EVENTS & BOOTSTRAP
-   ========================================================================= */
+async function copyGoogleDriveAppsScript() {
+  try {
+    const res = await fetch('../Code.gs?v=' + Date.now(), { cache: 'no-store' });
+    const txt = res.ok ? await res.text() : '';
+    if (txt && navigator.clipboard) {
+      await navigator.clipboard.writeText(txt);
+      showToast('Copied Code.gs (Auto-Google Drive Bill Saver) to clipboard!');
+      return;
+    }
+  } catch {}
+  showToast('Open Code.gs in project root to copy the Google Drive script');
+}
+
 Object.assign(window, {
   toggleAdminTheme,
   refreshMathQuizUI,
@@ -2071,14 +2328,17 @@ Object.assign(window, {
   handleChangeFirebasePassword,
   handleManualCloudSync,
   copyFirestoreRulesToClipboard,
+  copyGoogleDriveAppsScript,
   setTab,
   toggleFeatureFlag,
   toggleMaintenanceMode,
   toggleAnnouncementActive,
   saveBroadcastAndBranding,
+  saveCustomerWarrantyRecord,
+  editCustomerRecord,
+  cancelEditCustomerRecord,
   extendUnitWarranty,
   deleteUnit,
-  addHardwareUnit,
   setTicketFilter,
   updateTicketStatus,
   deleteTicket,
@@ -2087,9 +2347,7 @@ Object.assign(window, {
   exportMasterInvoicesCsv,
   addHubApp,
   toggleHubApp,
-  deleteHubApp,
-  saveCustomerControl,
-  toggleCustomerPolicy
+  deleteHubApp
 });
 
 (function initAdminApp() {
@@ -2102,16 +2360,12 @@ Object.assign(window, {
 
   rollMathQuiz();
   startInactivityWatchdog();
-
-  // Always render immediately so a blank screen can NEVER occur
   render();
-
-  // Asynchronously initialize Firebase SDK inside try/catch if configured
   initFirebaseSafely();
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=8').catch(() => {});
+      navigator.serviceWorker.register('./sw.js?v=9').catch(() => {});
     });
   }
 })();
