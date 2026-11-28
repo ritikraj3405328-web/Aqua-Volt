@@ -1,9 +1,9 @@
-const ADMIN_CACHE = 'aquavault-admin-v7';
+const ADMIN_CACHE = 'aquavault-admin-v8';
 const ADMIN_ASSETS = [
   './',
   './index.html',
-  './admin.css?v=7',
-  './admin.js?v=7',
+  './admin.css?v=8',
+  './admin.js?v=8',
   '../firebase-config.js',
   './manifest.webmanifest',
   '../assets/icon-192.png',
@@ -40,7 +40,7 @@ self.addEventListener('fetch', (event) => {
     url.pathname.endsWith('.js')
   ) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-store' })
         .then((res) => {
           if (res && res.status === 200) {
             const copy = res.clone();

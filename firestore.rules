@@ -15,10 +15,12 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Strict Server-Side Admin Gate — Replace with your exact Firebase Admin email before deploying
+    // Strict Server-Side Admin Gate — Verified by Firebase Auth UID (authenticated with Admin Password)
     function isAdmin() {
-      return isSignedIn() &&
-        request.auth.token.email == 'YOUR_ADMIN_EMAIL@gmail.com';
+      return isSignedIn() && (
+        request.auth.uid == 'Y8zmDKBgubWIVvhufftRPPjG7HC3' ||
+        request.auth.token.email == 'YOUR_ADMIN_EMAIL@gmail.com'
+      );
     }
 
     function isValidId(id) {

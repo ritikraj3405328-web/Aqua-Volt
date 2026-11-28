@@ -16,11 +16,76 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <script>try{var t=localStorage.getItem('aquavault_admin_theme_v1');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}</script>
-  <link rel="stylesheet" href="admin.css?v=7" />
+  <script>
+    try {
+      var t = localStorage.getItem('aquavault_admin_theme_v1');
+      if (t === 'light' || t === 'dark') {
+        document.documentElement.setAttribute('data-theme', t);
+      }
+      // Self-healing cache purge for v8 to eliminate any stale cached blank screens on GitHub Pages
+      var genKey = 'aquavault_admin_cache_gen_v8';
+      if (!localStorage.getItem(genKey)) {
+        localStorage.setItem(genKey, '1');
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            regs.forEach(function(r) { r.unregister(); });
+          }).catch(function(){});
+        }
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            keys.forEach(function(k) {
+              if (k !== 'aquavault-admin-v8') caches.delete(k);
+            });
+          }).catch(function(){});
+        }
+      }
+    } catch (e) {}
+
+    window.resetAdminCacheAndReload = function() {
+      try {
+        var p1 = ('serviceWorker' in navigator)
+          ? navigator.serviceWorker.getRegistrations().then(function(rs){ return Promise.all(rs.map(function(r){ return r.unregister(); })); })
+          : Promise.resolve();
+        var p2 = ('caches' in window)
+          ? caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); })
+          : Promise.resolve();
+        Promise.all([p1, p2]).finally(function() {
+          window.location.replace(window.location.pathname + '?v=' + Date.now());
+        });
+      } catch (_) {
+        window.location.reload();
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="admin.css?v=8" />
 </head>
 <body>
-  <div id="adminRoot"></div>
-  <script type="module" src="admin.js?v=7"></script>
+  <div id="adminRoot">
+    <!-- Pre-rendered instant fallback shell so the page is NEVER blank even at 0ms or on slow mobile networks -->
+    <div class="auth-viewport">
+      <div class="auth-top-bar">
+        <div class="auth-brand">
+          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AquaVault Admin" /></div>
+          <div>
+            <div style="font-size:15px;font-weight:800;letter-spacing:-0.02em;">AquaVault Admin</div>
+            <div style="font-size:10.5px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--primary);">Firebase Protected Console</div>
+          </div>
+        </div>
+      </div>
+      <div class="auth-card">
+        <div class="security-shield-row">
+          <span class="shield-chip">Firebase Auth Gate</span>
+          <span class="shield-chip emerald">30m Auto-Logout Guard</span>
+        </div>
+        <h1 class="auth-title serif">Admin Login</h1>
+        <p class="auth-sub">Loading AquaVault Admin Security Console...</p>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <span style="font-size:11.5px;color:var(--ink-tertiary);">Stuck on an old cached version?</span>
+          <button type="button" class="btn btn-sm btn-soft" onclick="window.resetAdminCacheAndReload()">Refresh &amp; Clear Cache</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="admin.js?v=8"></script>
 </body>
 </html>

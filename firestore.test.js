@@ -10,9 +10,9 @@ let testEnv;
 const PROJECT_ID = process.env.GCP_PROJECT || "demo-no-project";
 const ALICE_UID = "alice_customer_101";
 const BOB_UID = "bob_customer_202";
-const ADMIN_UID = "admin_primary_999";
+const ADMIN_UID = "Y8zmDKBgubWIVvhufftRPPjG7HC3";
 const OTHER_UID = "other_user_666";
-const ADMIN_EMAIL = "YOUR_ADMIN_EMAIL@gmail.com";
+const ADMIN_EMAIL = "admin@aquavault.in";
 
 const [emulatorHost, emulatorPortStr] = (
   process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8085"

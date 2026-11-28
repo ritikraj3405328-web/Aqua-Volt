@@ -2691,11 +2691,58 @@ function updateFirebaseStatusBanner() {
   }
 }
 
+async function resolveCustomerFirebaseConfig() {
+  let cfg = null;
+  let dbId = '(default)';
+  try {
+    const cfgMod = await import('./firebase-config.js?v=8');
+    cfg = cfgMod?.firebaseConfig || cfgMod?.default || globalThis.__AQUAVAULT_FIREBASE_CONFIG__ || null;
+    dbId = cfgMod?.firestoreDatabaseId || globalThis.__AQUAVAULT_FIRESTORE_DB_ID__ || '(default)';
+  } catch {}
+
+  if (!isCustomerFirebaseConfigReady(cfg) && isCustomerFirebaseConfigReady(globalThis.__AQUAVAULT_FIREBASE_CONFIG__)) {
+    cfg = globalThis.__AQUAVAULT_FIREBASE_CONFIG__;
+  }
+
+  if (!isCustomerFirebaseConfigReady(cfg)) {
+    try {
+      const res = await fetch('./firebase-config.js?v=' + Date.now(), { cache: 'no-store' });
+      if (res.ok) {
+        const src = await res.text();
+        const pick = (k) => {
+          const m = src.match(new RegExp(k + '\\s*:\\s*["\']([^"\']+)["\']'));
+          return m ? m[1].trim() : '';
+        };
+        const parsed = {
+          apiKey: pick('apiKey'),
+          authDomain: pick('authDomain'),
+          projectId: pick('projectId'),
+          storageBucket: pick('storageBucket'),
+          messagingSenderId: pick('messagingSenderId'),
+          appId: pick('appId')
+        };
+        if (isCustomerFirebaseConfigReady(parsed)) cfg = parsed;
+      }
+    } catch {}
+  }
+
+  if (!isCustomerFirebaseConfigReady(cfg)) {
+    cfg = {
+      apiKey: "AIzaSyC-yKE9dRoZBu5yROBD2afoB0vQjoG_1Gs",
+      authDomain: "aqua-vault.firebaseapp.com",
+      projectId: "aqua-vault",
+      storageBucket: "aqua-vault.firebasestorage.app",
+      messagingSenderId: "35562578382",
+      appId: "1:35562578382:web:766ed7d52adea3293b8b9f"
+    };
+  }
+
+  return { cfg: cfg || {}, dbId };
+}
+
 async function initCustomerFirebase() {
   try {
-    const cfgMod = await import('./firebase-config.js');
-    const cfg = cfgMod.firebaseConfig || {};
-    const dbId = cfgMod.firestoreDatabaseId || '(default)';
+    const { cfg, dbId } = await resolveCustomerFirebaseConfig();
 
     if (!isCustomerFirebaseConfigReady(cfg)) {
       firebaseConnected = false;
