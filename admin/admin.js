@@ -137,7 +137,7 @@ async function resolveFirebaseConfigSafely() {
   if (isConfigObjectValid(runtimeFirebaseConfig)) return runtimeFirebaseConfig;
 
   try {
-    const mod = await import('../firebase-config.js?v=9');
+    const mod = await import('../firebase-config.js?v=10');
     const candidate = mod?.firebaseConfig || mod?.default || globalThis.__AQUAVAULT_FIREBASE_CONFIG__;
     if (mod?.firestoreDatabaseId) {
       runtimeFirestoreDbId = mod.firestoreDatabaseId;
@@ -1532,7 +1532,7 @@ function renderAuthViewport() {
     <div class="auth-viewport">
       <div class="auth-top-bar">
         <div class="auth-brand">
-          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AquaVault Admin" /></div>
+          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AquaVault Admin" width="40" height="40" /></div>
           <div>
             <div style="font-size:15px;font-weight:800;letter-spacing:-0.02em;">AquaVault Admin</div>
             <div style="font-size:10.5px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--primary);">Firebase Protected Console</div>
@@ -2201,7 +2201,7 @@ function renderAdminShell() {
     <div class="admin-shell">
       <aside class="admin-sidebar">
         <div class="auth-brand" style="padding:2px 8px 16px;border-bottom:1px solid var(--border);">
-          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AquaVault Admin" /></div>
+          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AquaVault Admin" width="40" height="40" /></div>
           <div style="min-width:0;">
             <div style="font-size:15.5px;font-weight:800;letter-spacing:-0.02em;">AquaVault Admin</div>
             <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--primary);">Command Center</div>
@@ -2233,7 +2233,7 @@ function renderAdminShell() {
       <div class="admin-main">
         <header class="admin-topbar">
           <div class="topbar-left">
-            <div class="auth-emblem" style="width:34px;height:34px;border-radius:10px;"><img src="../assets/app-icon.jpg" alt="Admin" /></div>
+            <div class="auth-emblem" style="width:34px;height:34px;border-radius:10px;"><img src="../assets/app-icon.jpg" alt="Admin" width="34" height="34" /></div>
             <div class="topbar-titles">
               <div class="topbar-brand">AquaVault Admin</div>
               <div class="topbar-sub">Firebase Verified &middot; ${esc(user.email || 'Owner')}</div>
@@ -2365,7 +2365,7 @@ Object.assign(window, {
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=9').catch(() => {});
+      navigator.serviceWorker.register('./sw.js?v=10').catch(() => {});
     });
   }
 })();

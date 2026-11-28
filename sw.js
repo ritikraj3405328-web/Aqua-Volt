@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aquavault-cache-v9';
+const CACHE_NAME = 'aquavault-cache-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -6,9 +6,9 @@ const ASSETS = [
   './invoice.html',
   './hub.html',
   './privacy.html',
-  './styles.css?v=9',
-  './invoice-engine.js?v=9',
-  './app.js?v=9',
+  './styles.css?v=10',
+  './invoice-engine.js?v=10',
+  './app.js?v=10',
   './firebase-config.js',
   './manifest.webmanifest',
   './assets/icon-192.png',

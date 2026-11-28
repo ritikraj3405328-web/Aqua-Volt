@@ -1,9 +1,9 @@
-const ADMIN_CACHE = 'aquavault-admin-v9';
+const ADMIN_CACHE = 'aquavault-admin-v10';
 const ADMIN_ASSETS = [
   './',
   './index.html',
-  './admin.css?v=9',
-  './admin.js?v=9',
+  './admin.css?v=10',
+  './admin.js?v=10',
   '../firebase-config.js',
   './manifest.webmanifest',
   '../assets/icon-192.png',

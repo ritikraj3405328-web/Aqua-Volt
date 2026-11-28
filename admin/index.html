@@ -22,8 +22,8 @@
       if (t === 'light' || t === 'dark') {
         document.documentElement.setAttribute('data-theme', t);
       }
-      // Self-healing cache purge for v9 to eliminate any stale cached blank screens on GitHub Pages
-      var genKey = 'aquavault_admin_cache_gen_v9';
+      // Self-healing cache purge for v10 to eliminate any stale cached blank screens on GitHub Pages
+      var genKey = 'aquavault_admin_cache_gen_v10';
       if (!localStorage.getItem(genKey)) {
         localStorage.setItem(genKey, '1');
         if ('serviceWorker' in navigator) {
@@ -34,7 +34,7 @@
         if ('caches' in window) {
           caches.keys().then(function(keys) {
             keys.forEach(function(k) {
-              if (k !== 'aquavault-admin-v9') caches.delete(k);
+              if (k !== 'aquavault-admin-v10') caches.delete(k);
             });
           }).catch(function(){});
         }
@@ -57,7 +57,7 @@
       }
     };
   </script>
-  <link rel="stylesheet" href="admin.css?v=9" />
+  <link rel="stylesheet" href="admin.css?v=10" />
 </head>
 <body>
   <div id="adminRoot">
@@ -65,7 +65,7 @@
     <div class="auth-viewport">
       <div class="auth-top-bar">
         <div class="auth-brand">
-          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AquaVault Admin" /></div>
+          <div class="auth-emblem"><img src="../assets/app-icon.jpg" alt="AquaVault Admin" width="40" height="40" /></div>
           <div>
             <div style="font-size:15px;font-weight:800;letter-spacing:-0.02em;">AquaVault Admin</div>
             <div style="font-size:10.5px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--primary);">Firebase Protected Console</div>
@@ -86,6 +86,6 @@
       </div>
     </div>
   </div>
-  <script type="module" src="admin.js?v=9"></script>
+  <script type="module" src="admin.js?v=10"></script>
 </body>
 </html>

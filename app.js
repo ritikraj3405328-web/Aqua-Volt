@@ -437,7 +437,7 @@ async function initPublicFirebaseSafely() {
   let cfg = { ...DEFAULT_FIREBASE_CONFIG };
   let dbId = '(default)';
   try {
-    const mod = await import('./firebase-config.js?v=9');
+    const mod = await import('./firebase-config.js?v=10');
     if (mod?.firebaseConfig && mod.firebaseConfig.apiKey) {
       cfg = mod.firebaseConfig;
     }
@@ -650,7 +650,7 @@ function renderPwaInstallPopup() {
   return `
     <div id="pwaInstallToast" class="pwa-install-toast" role="status" aria-live="polite">
       <div class="pwa-toast-icon">
-        <img src="assets/app-icon.jpg" alt="AquaVault App" />
+        <img src="assets/app-icon.jpg" alt="AquaVault App" width="38" height="38" />
       </div>
       <div class="pwa-toast-copy">
         <div class="pwa-toast-title">Install AquaVault Trust App</div>
@@ -710,7 +710,7 @@ function renderShell(activePage, mainContentHtml) {
       <aside class="sidebar" aria-label="Primary Navigation">
         <a href="index.html" class="brand-lockup">
           <div class="brand-emblem">
-            <img src="assets/app-icon.jpg" alt="AquaVault Emblem" />
+            <img src="assets/app-icon.jpg" alt="AquaVault Emblem" width="40" height="40" />
           </div>
           <div class="brand-titles">
             <span class="brand-name">AquaVault</span>
@@ -751,7 +751,7 @@ function renderShell(activePage, mainContentHtml) {
           <div class="topbar-inner">
             <div class="topbar-left">
               <a href="index.html" class="mobile-brand-chip" aria-label="AquaVault Home">
-                <img src="assets/app-icon.jpg" alt="AquaVault" />
+                <img src="assets/app-icon.jpg" alt="AquaVault" width="36" height="36" />
               </a>
               <div class="status-pill">
                 <span class="status-dot"></span>
@@ -975,7 +975,7 @@ function renderHome() {
       </div>
 
       <!-- Public Customer List (Displays ONLY Customer Name, Model & Quantity, and Live Warranty Countdown / Expired Badge) -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;">
+      <div class="public-customer-grid">
         ${filteredUnits.map(u => {
           const m = getPublicUnitMetrics(u);
           const isExpired = m.remainingDays === 0;
@@ -1406,7 +1406,8 @@ function renderHub() {
       <div style="display:flex;gap:10px;align-items:center;">
         ${ic('search')}
         <input
-          type="text"
+          id="hubSearchInput"
+          type="search"
           class="input"
           style="border:none;background:transparent;padding:4px;"
           placeholder="Search apps, websites, or tools (e.g., SellGst-Pro, Tank Volume, Solar)..."
@@ -1451,6 +1452,11 @@ function setHubCategory(cat) {
 function updateHubSearch(val) {
   state.hubSearch = sanitizeText(val, 100);
   renderApp();
+  const inp = document.getElementById('hubSearchInput');
+  if (inp) {
+    inp.focus();
+    try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch {}
+  }
 }
 
 /* =========================================================================
@@ -1593,6 +1599,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initPublicFirebaseSafely();
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js?v=9').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=10').catch(() => {});
   }
 });
